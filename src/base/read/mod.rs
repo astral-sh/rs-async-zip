@@ -7,6 +7,7 @@ pub mod mem;
 pub mod seek;
 pub mod stream;
 
+pub mod cd;
 pub(crate) mod io;
 
 use crate::ZipString;
