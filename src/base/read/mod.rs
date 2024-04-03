@@ -35,7 +35,7 @@ use crate::string::StringEncoding;
 use crate::base::read::io::CombinedCentralDirectoryRecord;
 use crate::spec::parse::parse_extra_fields;
 
-use futures_lite::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, SeekFrom};
+use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader, SeekFrom};
 
 /// The max buffer size used when parsing the central directory, equal to 20MiB.
 const MAX_CD_BUFFER_SIZE: usize = 20 * 1024 * 1024;
