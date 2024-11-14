@@ -2,7 +2,7 @@ use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 use crate::base::read::{detect_filename, io};
 use crate::error::{Result, ZipError};
-use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE};
+use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
 use crate::spec::header::CentralDirectoryRecord;
 use crate::spec::parse::parse_extra_fields;
 use crate::ZipString;
@@ -69,6 +69,7 @@ where
             match signature {
                 CDH_SIGNATURE => (),
                 EOCDR_SIGNATURE => return Ok(None),
+                ZIP64_EOCDR_SIGNATURE => return Ok(None),
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
         }
