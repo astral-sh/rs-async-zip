@@ -33,6 +33,11 @@ impl CentralDirectoryEntry {
     pub fn unix_permissions(&self) -> Option<u32> {
         Some((self.header.exter_attr) >> 16)
     }
+
+    /// Returns the file offset of the entry in the ZIP file.
+    pub fn file_offset(&self) -> u32 {
+        self.header.lh_offset
+    }
 }
 
 #[derive(Clone)]
