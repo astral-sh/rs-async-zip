@@ -199,12 +199,13 @@ where
         extra_fields,
         comment,
         data_descriptor: header.flags.data_descriptor,
+        file_offset,
     };
 
     Ok(StoredZipEntry { entry, file_offset, header_size: header_size + trailing_size })
 }
 
-pub(crate) async fn lfh<R>(mut reader: R) -> Result<Option<ZipEntry>>
+pub(crate) async fn lfh<R>(mut reader: R, file_offset: u64) -> Result<Option<ZipEntry>>
 where
     R: AsyncRead + Unpin,
 {
@@ -263,6 +264,7 @@ where
         extra_fields,
         comment: String::new().into(),
         data_descriptor: header.flags.data_descriptor,
+        file_offset,
     };
 
     Ok(Some(entry))

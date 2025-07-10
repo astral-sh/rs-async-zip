@@ -45,6 +45,7 @@ pub struct ZipEntry {
     pub(crate) extra_fields: Vec<ExtraField>,
     pub(crate) comment: ZipString,
     pub(crate) data_descriptor: bool,
+    pub(crate) file_offset: u64,
 }
 
 impl From<ZipEntryBuilder> for ZipEntry {
@@ -77,6 +78,7 @@ impl ZipEntry {
             extra_fields: Vec::new(),
             comment: String::new().into(),
             data_descriptor: false,
+            file_offset: 0,
         }
     }
 
@@ -155,6 +157,11 @@ impl ZipEntry {
     /// Returns whether or not the entry represents a directory.
     pub fn dir(&self) -> Result<bool> {
         Ok(self.filename.as_str()?.ends_with('/'))
+    }
+
+    /// Returns the file offset in bytes of the local file header for this entry.
+    pub fn file_offset(&self) -> u64 {
+        self.file_offset
     }
 }
 
