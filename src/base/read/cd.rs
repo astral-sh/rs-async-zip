@@ -2,8 +2,8 @@ use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 use crate::base::read::{detect_filename, io};
 use crate::error::{Result, ZipError};
-use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
-use crate::spec::header::CentralDirectoryRecord;
+use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, ZIP64_EOCDL_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
+use crate::spec::header::{CentralDirectoryRecord, EndOfCentralDirectoryHeader};
 use crate::spec::parse::parse_extra_fields;
 use crate::ZipString;
 
@@ -58,7 +58,7 @@ where
     /// Reads the next [`CentralDirectoryEntry`] from the underlying source, advancing the
     /// reader to the next record.
     ///
-    /// Returns `Ok(None)` if the end of the central directory has been reached.
+    /// Returns `Ok(None)` if the end of the central directory record has been reached.
     pub async fn next(&mut self) -> Result<Option<CentralDirectoryEntry>> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's
@@ -73,8 +73,59 @@ where
             };
             match signature {
                 CDH_SIGNATURE => (),
-                EOCDR_SIGNATURE => return Ok(None),
-                ZIP64_EOCDR_SIGNATURE => return Ok(None),
+                EOCDR_SIGNATURE => {
+                    // Read the end-of-central-directory header.
+                    let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut self.reader).await?;
+
+                    // Advance past the EOCDR comment, which is optional.
+                    io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
+                        .await?;
+
+                    return Ok(None);
+                }
+                ZIP64_EOCDR_SIGNATURE => {
+                    // Read the next eight bytes, which represents the size of the ZIP64 EOCDR.
+                    let mut buffer = [0; 8];
+                    self.reader.read_exact(&mut buffer).await?;
+                    let zip64_eocdr_length = u64::from_le_bytes(buffer);
+
+                    // Skip the ZIP64 EOCDR.
+                    let mut buffer = vec![0; zip64_eocdr_length as usize];
+                    self.reader.read_exact(&mut buffer).await?;
+
+                    // Read the ZIP64 EOCDR locator signature.
+                    let signature = {
+                        let mut buffer = [0; 4];
+                        self.reader.read_exact(&mut buffer).await?;
+                        u32::from_le_bytes(buffer)
+                    };
+                    if signature != ZIP64_EOCDL_SIGNATURE {
+                        return Err(ZipError::UnexpectedHeaderError(signature, ZIP64_EOCDR_SIGNATURE));
+                    }
+
+                    // Skip the ZIP64 EOCDR locator, which is 16 bytes.
+                    let mut buffer = [0; 16];
+                    self.reader.read_exact(&mut buffer).await?;
+
+                    // Read the EOCDR signature.
+                    let signature = {
+                        let mut buffer = [0; 4];
+                        self.reader.read_exact(&mut buffer).await?;
+                        u32::from_le_bytes(buffer)
+                    };
+                    if signature != EOCDR_SIGNATURE {
+                        return Err(ZipError::UnexpectedHeaderError(signature, EOCDR_SIGNATURE));
+                    }
+
+                    // Read the end-of-central-directory header.
+                    let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut self.reader).await?;
+
+                    // Advance past the EOCDR comment, which is optional.
+                    io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
+                        .await?;
+
+                    return Ok(None);
+                }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
         }
