@@ -48,6 +48,16 @@ impl CombinedCentralDirectoryRecord {
 
         combined
     }
+
+    /// Returns the offset of the start of the central directory in bytes.
+    pub fn central_directory_offset(&self) -> u64 {
+        self.offset_of_start_of_directory
+    }
+
+    /// Returns the number of entries in the central directory.
+    pub fn num_entries(&self) -> u64 {
+        self.num_entries_in_directory
+    }
 }
 
 // An implementation for the case of no zip64EOCDR.
