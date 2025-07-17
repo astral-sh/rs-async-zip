@@ -39,7 +39,7 @@
 //! // Print the name of every file in a ZIP archive.
 //! while let Some(entry) = zip.next_with_entry().await? {
 //!     println!("File: {}", entry.reader().entry().filename().as_str().unwrap());
-//!     zip = entry.skip().await?;
+//!     (.., zip) = entry.skip().await?;
 //! }
 //! #
 //! #     Ok(())
@@ -54,9 +54,7 @@ use std::task::{Context, Poll};
 use crate::base::read::io::entry::ZipEntryReader;
 use crate::error::Result;
 use crate::error::ZipError;
-use crate::spec::consts::DATA_DESCRIPTOR_LENGTH;
-use crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE;
-use crate::spec::consts::SIGNATURE_LENGTH;
+use crate::spec::data_descriptor::DataDescriptor;
 #[cfg(feature = "tokio")]
 use crate::tokio::read::stream::Ready as TokioReady;
 
@@ -199,6 +197,8 @@ where
     }
 }
 
+type Next<R> = (Option<DataDescriptor>, ZipFileReader<Ready<R>>);
+
 impl<'a, R, E> ZipFileReader<Reading<'a, R, E>>
 where
     R: AsyncBufRead + Unpin,
@@ -214,43 +214,29 @@ where
     }
 
     /// Converts the reader back into the Ready state if EOF has been reached.
-    pub async fn done(mut self) -> Result<ZipFileReader<Ready<R>>> {
+    pub async fn done(mut self) -> Result<Next<R>> {
         if self.0 .0.read(&mut [0; 1]).await? != 0 {
             return Err(ZipError::EOFNotReached);
         }
 
         let mut inner = self.0 .0.into_inner();
 
-        // Has data descriptor.
-        if self.0 .1 {
-            consume_data_descriptor(&mut inner).await?;
-        }
+        let data_descriptor = if self.0 .1 { Some(DataDescriptor::from_reader(&mut inner).await?) } else { None };
 
-        Ok(ZipFileReader(Ready(inner)))
+        let reader = ZipFileReader(Ready(inner));
+
+        Ok((data_descriptor, reader))
     }
 
     /// Reads until EOF and converts the reader back into the Ready state.
-    pub async fn skip(mut self) -> Result<ZipFileReader<Ready<R>>> {
+    pub async fn skip(mut self) -> Result<Next<R>> {
         while self.0 .0.read(&mut [0; 2048]).await? != 0 {}
         let mut inner = self.0 .0.into_inner();
 
-        // Has data descriptor.
-        if self.0 .1 {
-            consume_data_descriptor(&mut inner).await?;
-        }
+        let data_descriptor = if self.0 .1 { Some(DataDescriptor::from_reader(&mut inner).await?) } else { None };
 
-        Ok(ZipFileReader(Ready(inner)))
+        let reader = ZipFileReader(Ready(inner));
+
+        Ok((data_descriptor, reader))
     }
-}
-
-async fn consume_data_descriptor<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<()> {
-    let mut descriptor: [u8; DATA_DESCRIPTOR_LENGTH] = [0; DATA_DESCRIPTOR_LENGTH];
-    reader.read_exact(&mut descriptor).await?;
-
-    if descriptor[0..SIGNATURE_LENGTH] == DATA_DESCRIPTOR_SIGNATURE.to_le_bytes() {
-        let mut tail: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
-        reader.read_exact(&mut tail).await?;
-    }
-
-    Ok(())
 }

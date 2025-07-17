@@ -13,8 +13,7 @@ use crate::spec::extra_field::ExtraFieldAsBytes;
 use crate::spec::header::InfoZipUnicodeCommentExtraField;
 use crate::spec::header::InfoZipUnicodePathExtraField;
 use crate::spec::header::{
-    CentralDirectoryRecord, ExtraField, GeneralPurposeFlag, HeaderId, LocalFileHeader,
-    Zip64ExtendedInformationExtraField,
+    CentralDirectoryRecord, ExtraField, GeneralPurposeFlag, LocalFileHeader, Zip64ExtendedInformationExtraField,
 };
 use crate::string::StringEncoding;
 

@@ -183,6 +183,16 @@ impl From<[u8; 16]> for Zip64EndOfCentralDirectoryLocator {
     }
 }
 
+impl From<[u8; 16]> for DataDescriptor {
+    fn from(value: [u8; 16]) -> Self {
+        Self {
+            crc: u32::from_le_bytes(value[0..4].try_into().unwrap()),
+            compressed_size: u32::from_le_bytes(value[4..8].try_into().unwrap()),
+            uncompressed_size: u32::from_le_bytes(value[8..12].try_into().unwrap()),
+        }
+    }
+}
+
 impl LocalFileHeader {
     pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<LocalFileHeader> {
         let mut buffer: [u8; 26] = [0; 26];
@@ -227,6 +237,45 @@ impl Zip64EndOfCentralDirectoryRecord {
         array_push!(array, cursor, self.num_entries_in_directory.to_le_bytes());
         array_push!(array, cursor, self.directory_size.to_le_bytes());
         array_push!(array, cursor, self.offset_of_start_of_directory.to_le_bytes());
+
+        array
+    }
+}
+
+impl DataDescriptor {
+    pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<DataDescriptor> {
+        let mut descriptor: [u8; DATA_DESCRIPTOR_LENGTH] = [0; DATA_DESCRIPTOR_LENGTH];
+        reader.read_exact(&mut descriptor).await?;
+
+        // The data descriptor signature is optional.
+        if descriptor[0..SIGNATURE_LENGTH] == DATA_DESCRIPTOR_SIGNATURE.to_le_bytes() {
+            // If present, read the remaining bytes.
+            let mut tail: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
+            reader.read_exact(&mut tail).await?;
+
+            Ok(DataDescriptor {
+                crc: u32::from_le_bytes(descriptor[4..8].try_into().unwrap()),
+                compressed_size: u32::from_le_bytes(descriptor[8..12].try_into().unwrap()),
+                uncompressed_size: u32::from_le_bytes(tail[0..4].try_into().unwrap()),
+            })
+        } else {
+            // If absent, then the first four bytes are not the signature, but instead part of the
+            // data descriptor.
+            Ok(DataDescriptor {
+                crc: u32::from_le_bytes(descriptor[0..4].try_into().unwrap()),
+                compressed_size: u32::from_le_bytes(descriptor[4..8].try_into().unwrap()),
+                uncompressed_size: u32::from_le_bytes(descriptor[8..12].try_into().unwrap()),
+            })
+        }
+    }
+
+    pub fn as_bytes(&self) -> [u8; DATA_DESCRIPTOR_LENGTH] {
+        let mut array = [0; DATA_DESCRIPTOR_LENGTH];
+        let mut cursor = 0;
+
+        array_push!(array, cursor, self.crc.to_le_bytes());
+        array_push!(array, cursor, self.compressed_size.to_le_bytes());
+        array_push!(array, cursor, self.uncompressed_size.to_le_bytes());
 
         array
     }
@@ -302,8 +351,9 @@ macro_rules! array_push {
     }};
 }
 
-use crate::spec::consts::ZIP64_EOCDL_SIGNATURE;
-use crate::spec::extra_field::{extra_field_from_bytes, ExtraFieldAsBytes};
+use crate::spec::consts::{DATA_DESCRIPTOR_LENGTH, DATA_DESCRIPTOR_SIGNATURE, SIGNATURE_LENGTH, ZIP64_EOCDL_SIGNATURE};
+use crate::spec::data_descriptor::DataDescriptor;
+use crate::spec::extra_field::extra_field_from_bytes;
 pub(crate) use array_push;
 
 #[cfg(test)]
