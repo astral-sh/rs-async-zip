@@ -7,6 +7,12 @@ use crate::spec::header::{CentralDirectoryRecord, EndOfCentralDirectoryHeader};
 use crate::spec::parse::parse_extra_fields;
 use crate::ZipString;
 
+/// An entry returned by the [`CentralDirectoryReader`].
+pub enum Entry {
+    CentralDirectoryEntry(CentralDirectoryEntry),
+    EndOfCentralDirectoryHeader(EndOfCentralDirectoryHeader),
+}
+
 /// An entry in the ZIP file's central directory.
 pub struct CentralDirectoryEntry {
     pub(crate) header: CentralDirectoryRecord,
@@ -38,6 +44,11 @@ impl CentralDirectoryEntry {
     pub fn file_offset(&self) -> u32 {
         self.header.lh_offset
     }
+
+    /// Returns the CRC32 checksum of the entry.
+    pub fn crc32(&self) -> u32 {
+        self.header.crc
+    }
 }
 
 #[derive(Clone)]
@@ -58,8 +69,9 @@ where
     /// Reads the next [`CentralDirectoryEntry`] from the underlying source, advancing the
     /// reader to the next record.
     ///
-    /// Returns `Ok(None)` if the end of the central directory record has been reached.
-    pub async fn next(&mut self) -> Result<Option<CentralDirectoryEntry>> {
+    /// Returns `Ok(EndOfCentralDirectoryHeader)` if the end of the central directory record has
+    /// been reached.
+    pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's
         // signature has already been read.
@@ -81,7 +93,7 @@ where
                     io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                         .await?;
 
-                    return Ok(None);
+                    return Ok(Entry::EndOfCentralDirectoryHeader(eocdr));
                 }
                 ZIP64_EOCDR_SIGNATURE => {
                     // Read the next eight bytes, which represents the size of the ZIP64 EOCDR.
@@ -124,7 +136,7 @@ where
                     io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                         .await?;
 
-                    return Ok(None);
+                    return Ok(Entry::EndOfCentralDirectoryHeader(eocdr));
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
@@ -142,6 +154,6 @@ where
         // Parse out the filename.
         let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
 
-        Ok(Some(CentralDirectoryEntry { header, filename }))
+        Ok(Entry::CentralDirectoryEntry(CentralDirectoryEntry { header, filename }))
     }
 }

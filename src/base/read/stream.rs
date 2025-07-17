@@ -181,6 +181,11 @@ where
     pub async fn into_inner(self) -> R {
         self.0 .0.into_inner()
     }
+
+    /// Returns the file offset of the current reader.
+    pub fn offset(&self) -> u64 {
+        self.0 .0.bytes_read()
+    }
 }
 
 #[cfg(feature = "tokio")]
