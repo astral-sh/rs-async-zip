@@ -135,10 +135,14 @@ fn get_combined_sizes(
 
     if let Some(extra_field) = extra_field {
         if let Some(s) = extra_field.uncompressed_size {
-            uncompressed_size = s;
+            if uncompressed_size == NON_ZIP64_MAX_SIZE as u64 {
+                uncompressed_size = s;
+            }
         }
         if let Some(s) = extra_field.compressed_size {
-            compressed_size = s;
+            if compressed_size == NON_ZIP64_MAX_SIZE as u64 {
+                compressed_size = s;
+            }
         }
     }
 
