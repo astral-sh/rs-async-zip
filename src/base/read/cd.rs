@@ -1,16 +1,17 @@
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
+use crate::base::read::io::CombinedCentralDirectoryRecord;
 use crate::base::read::{detect_filename, io};
 use crate::error::{Result, ZipError};
 use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, ZIP64_EOCDL_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
-use crate::spec::header::{CentralDirectoryRecord, EndOfCentralDirectoryHeader};
+use crate::spec::header::{CentralDirectoryRecord, EndOfCentralDirectoryHeader, Zip64EndOfCentralDirectoryRecord};
 use crate::spec::parse::parse_extra_fields;
 use crate::ZipString;
 
 /// An entry returned by the [`CentralDirectoryReader`].
 pub enum Entry {
     CentralDirectoryEntry(CentralDirectoryEntry),
-    EndOfCentralDirectoryHeader(EndOfCentralDirectoryHeader),
+    EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord),
 }
 
 /// An entry in the ZIP file's central directory.
@@ -49,6 +50,16 @@ impl CentralDirectoryEntry {
     pub fn crc32(&self) -> u32 {
         self.header.crc
     }
+
+    /// Returns the entry's compressed size.
+    pub fn compressed_size(&self) -> u32 {
+        self.header.compressed_size
+    }
+
+    /// Returns the entry's uncompressed size.
+    pub fn uncompressed_size(&self) -> u32 {
+        self.header.uncompressed_size
+    }
 }
 
 #[derive(Clone)]
@@ -69,7 +80,7 @@ where
     /// Reads the next [`CentralDirectoryEntry`] from the underlying source, advancing the
     /// reader to the next record.
     ///
-    /// Returns `Ok(EndOfCentralDirectoryHeader)` if the end of the central directory record has
+    /// Returns `Ok(EndOfCentralDirectoryRecord)` if the end of the central directory record has
     /// been reached.
     pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
@@ -93,17 +104,11 @@ where
                     io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                         .await?;
 
-                    return Ok(Entry::EndOfCentralDirectoryHeader(eocdr));
+                    return Ok(Entry::EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord::from(&eocdr)));
                 }
                 ZIP64_EOCDR_SIGNATURE => {
-                    // Read the next eight bytes, which represents the size of the ZIP64 EOCDR.
-                    let mut buffer = [0; 8];
-                    self.reader.read_exact(&mut buffer).await?;
-                    let zip64_eocdr_length = u64::from_le_bytes(buffer);
-
-                    // Skip the ZIP64 EOCDR.
-                    let mut buffer = vec![0; zip64_eocdr_length as usize];
-                    self.reader.read_exact(&mut buffer).await?;
+                    // Read the ZIP64 EOCDR.
+                    let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut self.reader).await?;
 
                     // Read the ZIP64 EOCDR locator signature.
                     let signature = {
@@ -136,7 +141,10 @@ where
                     io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                         .await?;
 
-                    return Ok(Entry::EndOfCentralDirectoryHeader(eocdr));
+                    return Ok(Entry::EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord::combine(
+                        eocdr,
+                        zip64_eocdr,
+                    )));
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }

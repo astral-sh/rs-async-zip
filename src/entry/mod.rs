@@ -158,6 +158,11 @@ impl ZipEntry {
     pub fn dir(&self) -> Result<bool> {
         Ok(self.filename.as_str()?.ends_with('/'))
     }
+    
+    /// Returns whether or not the entry has a data descriptor.
+    pub fn data_descriptor(&self) -> bool {
+        self.data_descriptor
+    }
 
     /// Returns the file offset in bytes of the local file header for this entry.
     pub fn file_offset(&self) -> u64 {
