@@ -67,7 +67,7 @@ impl ExtraFieldAsBytes for UnknownExtraField {
 impl ExtraFieldAsBytes for Zip64ExtendedInformationExtraField {
     fn as_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        let header_id: u16 = self.header_id.into();
+        let header_id: u16 = HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD.into();
         bytes.append(&mut header_id.to_le_bytes().to_vec());
         bytes.append(&mut (self.content_size() as u16).to_le_bytes().to_vec());
         if let Some(uncompressed_size) = &self.uncompressed_size {
@@ -156,7 +156,7 @@ impl ExtraFieldAsBytes for InfoZipUnicodePathExtraField {
 /// Parse a zip64 extra field from bytes.
 /// The content of "data" should exclude the header.
 fn zip64_extended_information_field_from_bytes(
-    header_id: HeaderId,
+    _header_id: HeaderId,
     data: &[u8],
     uncompressed_size: u32,
     compressed_size: u32,
@@ -197,7 +197,6 @@ fn zip64_extended_information_field_from_bytes(
     };
 
     Ok(Zip64ExtendedInformationExtraField {
-        header_id,
         uncompressed_size,
         compressed_size,
         relative_header_offset,
@@ -278,7 +277,6 @@ impl Zip64ExtendedInformationExtraFieldBuilder {
     pub fn new() -> Self {
         Self {
             field: Zip64ExtendedInformationExtraField {
-                header_id: HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD,
                 uncompressed_size: None,
                 compressed_size: None,
                 relative_header_offset: None,

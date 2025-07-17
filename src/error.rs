@@ -55,6 +55,8 @@ pub enum ZipError {
     InvalidExtraFieldHeader(u16, usize),
     #[error("zip64 extended information field was incomplete")]
     Zip64ExtendedFieldIncomplete,
+    #[error("an extra field with id {0:#x} was duplicated in the header")]
+    DuplicateExtraFieldHeader(u16),
 
     #[error("an upstream reader returned an error: {0}")]
     UpstreamReadError(#[from] std::io::Error),
