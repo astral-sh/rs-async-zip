@@ -135,6 +135,18 @@ pub struct EndOfCentralDirectoryHeader {
     pub(crate) file_comm_length: u16,
 }
 
+impl EndOfCentralDirectoryHeader {
+    /// Returns the offset of the start of the central directory in bytes.
+    pub fn central_directory_offset(&self) -> u64 {
+        self.cent_dir_offset as u64
+    }
+
+    /// Returns the number of entries in the central directory.
+    pub fn num_entries(&self) -> u64 {
+        self.num_of_entries as u64
+    }
+}
+
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#4314
 #[derive(Debug, PartialEq)]
 pub struct Zip64EndOfCentralDirectoryRecord {
