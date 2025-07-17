@@ -266,15 +266,27 @@ impl Zip64EndOfCentralDirectoryLocator {
 /// Parse the extra fields.
 pub fn parse_extra_fields(data: Vec<u8>, uncompressed_size: u32, compressed_size: u32) -> Result<Vec<ExtraField>> {
     let mut cursor = 0;
-    let mut extra_fields = Vec::new();
+    let mut extra_fields = Vec::<ExtraField>::new();
+
     while cursor + 4 < data.len() {
         let header_id: HeaderId = u16::from_le_bytes(data[cursor..cursor + 2].try_into().unwrap()).into();
         let field_size = u16::from_le_bytes(data[cursor + 2..cursor + 4].try_into().unwrap());
         if cursor + 4 + field_size as usize > data.len() {
             return Err(ZipError::InvalidExtraFieldHeader(field_size, data.len() - cursor - 8 - field_size as usize));
         }
+
+        // Decode the extra field data.
         let data = &data[cursor + 4..cursor + 4 + field_size as usize];
-        extra_fields.push(extra_field_from_bytes(header_id, field_size, data, uncompressed_size, compressed_size)?);
+        let extra_field = extra_field_from_bytes(header_id, field_size, data, uncompressed_size, compressed_size)?;
+
+        // Verify that the extra field doesn't contain duplicates.
+        for seen in &extra_fields {
+            if extra_field.header_id() == seen.header_id() {
+                return Err(ZipError::DuplicateExtraFieldHeader(header_id.into()));
+            }
+        }
+
+        extra_fields.push(extra_field);
         cursor += 4 + field_size as usize;
     }
     Ok(extra_fields)
@@ -291,7 +303,7 @@ macro_rules! array_push {
 }
 
 use crate::spec::consts::ZIP64_EOCDL_SIGNATURE;
-use crate::spec::extra_field::extra_field_from_bytes;
+use crate::spec::extra_field::{extra_field_from_bytes, ExtraFieldAsBytes};
 pub(crate) use array_push;
 
 #[cfg(test)]

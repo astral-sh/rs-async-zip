@@ -57,12 +57,23 @@ pub enum ExtraField {
     Unknown(UnknownExtraField),
 }
 
+impl ExtraField {
+    /// Returns the [`HeaderId`] of the extra field.
+    pub fn header_id(&self) -> HeaderId {
+        match self {
+            ExtraField::Zip64ExtendedInformation(..) => HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD,
+            ExtraField::InfoZipUnicodeComment(..) => HeaderId::INFO_ZIP_UNICODE_COMMENT_EXTRA_FIELD,
+            ExtraField::InfoZipUnicodePath(..) => HeaderId::INFO_ZIP_UNICODE_PATH_EXTRA_FIELD,
+            ExtraField::Unknown(field) => field.header_id,
+        }
+    }
+}
+
 /// An extended information header for Zip64.
 /// This field is used both for local file headers and central directory records.
 /// https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#453
 #[derive(Clone, Debug)]
 pub struct Zip64ExtendedInformationExtraField {
-    pub header_id: HeaderId,
     pub uncompressed_size: Option<u64>,
     pub compressed_size: Option<u64>,
     // While not specified in the spec, these two fields are often left out in practice.

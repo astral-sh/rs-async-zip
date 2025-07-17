@@ -46,14 +46,14 @@
 //! # }
 //! ```
 
-use crate::base::read::io::entry::ZipEntryReader;
-use crate::error::Result;
-use crate::error::ZipError;
 use std::io;
 use std::io::Read;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::base::read::io::entry::ZipEntryReader;
+use crate::error::Result;
+use crate::error::ZipError;
 use crate::spec::consts::DATA_DESCRIPTOR_LENGTH;
 use crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE;
 use crate::spec::consts::SIGNATURE_LENGTH;
