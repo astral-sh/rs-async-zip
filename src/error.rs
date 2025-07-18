@@ -71,4 +71,9 @@ pub enum ZipError {
     InfoZipUnicodeCommentFieldIncomplete,
     #[error("Info-ZIP Unicode Path Extra Field was incomplete")]
     InfoZipUnicodePathFieldIncomplete,
+
+    #[error("the zip64 end of central directory locator was not found")]
+    MissingZip64EndOfCentralDirectoryLocator,
+    #[error("the zip64 end of central directory locator offset ({0:#x}) did not match the actual offset ({1:#x})")]
+    InvalidZip64EndOfCentralDirectoryLocatorOffset(u64, u64),
 }

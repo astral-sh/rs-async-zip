@@ -8,6 +8,7 @@ pub mod seek;
 pub mod stream;
 
 pub mod cd;
+mod counting;
 pub(crate) mod io;
 
 use crate::ZipString;
@@ -305,31 +306,29 @@ fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFiel
 }
 
 fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
-    if basic_is_utf8 {
+    let unicode_extra = extra_fields.iter().find_map(|field| match field {
+        ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32, unicode }) => {
+            if unicode.len() > 0 && *crc32 == crc32fast::hash(&basic) {
+                Some(std::string::String::from_utf8(unicode.clone()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    });
+    if let Some(Ok(s)) = unicode_extra {
+        ZipString::new_with_alternative(s, basic)
+    } else if basic_is_utf8 {
         ZipString::new(basic, StringEncoding::Utf8)
     } else {
-        let unicode_extra = extra_fields.iter().find_map(|field| match field {
-            ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32, unicode }) => {
-                if *crc32 == crc32fast::hash(&basic) {
-                    Some(std::string::String::from_utf8(unicode.clone()))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        });
-        if let Some(Ok(s)) = unicode_extra {
-            ZipString::new_with_alternative(s, basic)
+        // Do not treat as UTF-8 if UTF-8 flags are not set,
+        // some string in MBCS may be valid UTF-8 in form, but they are not in truth.
+        if basic.is_ascii() {
+            // SAFETY:
+            // a valid ASCII string is always a valid UTF-8 string
+            unsafe { std::string::String::from_utf8_unchecked(basic).into() }
         } else {
-            // Do not treat as UTF-8 if UTF-8 flags are not set,
-            // some string in MBCS may be valid UTF-8 in form, but they are not in truth.
-            if basic.is_ascii() {
-                // SAFETY:
-                // a valid ASCII string is always a valid UTF-8 string
-                unsafe { std::string::String::from_utf8_unchecked(basic).into() }
-            } else {
-                ZipString::new(basic, StringEncoding::Raw)
-            }
+            ZipString::new(basic, StringEncoding::Raw)
         }
     }
 }

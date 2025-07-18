@@ -1,10 +1,14 @@
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
+use crate::base::read::counting::Counting;
 use crate::base::read::io::CombinedCentralDirectoryRecord;
-use crate::base::read::{detect_filename, io};
+use crate::base::read::{detect_filename, get_zip64_extra_field, io};
 use crate::error::{Result, ZipError};
-use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, ZIP64_EOCDL_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
-use crate::spec::header::{CentralDirectoryRecord, EndOfCentralDirectoryHeader, Zip64EndOfCentralDirectoryRecord};
+use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, NON_ZIP64_MAX_SIZE, ZIP64_EOCDR_SIGNATURE};
+use crate::spec::header::{
+    CentralDirectoryRecord, EndOfCentralDirectoryHeader, Zip64EndOfCentralDirectoryLocator,
+    Zip64EndOfCentralDirectoryRecord,
+};
 use crate::spec::parse::parse_extra_fields;
 use crate::ZipString;
 
@@ -16,7 +20,15 @@ pub enum Entry {
 
 /// An entry in the ZIP file's central directory.
 pub struct CentralDirectoryEntry {
+    /// The compressed size of the entry, taking into account ZIP64 if necessary.
+    pub(crate) compressed_size: u64,
+    /// The uncompressed size of the entry, taking into account ZIP64 if necessary.
+    pub(crate) uncompressed_size: u64,
+    /// The file offset of the entry in the ZIP file, taking into account ZIP64 if necessary.
+    pub(crate) lh_offset: u64,
+    /// The end-of-central-directory record header.
     pub(crate) header: CentralDirectoryRecord,
+    /// The filename of the entry.
     pub(crate) filename: ZipString,
 }
 
@@ -41,24 +53,24 @@ impl CentralDirectoryEntry {
         Some((self.header.exter_attr) >> 16)
     }
 
-    /// Returns the file offset of the entry in the ZIP file.
-    pub fn file_offset(&self) -> u32 {
-        self.header.lh_offset
-    }
-
     /// Returns the CRC32 checksum of the entry.
     pub fn crc32(&self) -> u32 {
         self.header.crc
     }
 
+    /// Returns the file offset of the entry in the ZIP file.
+    pub fn file_offset(&self) -> u64 {
+        self.lh_offset
+    }
+
     /// Returns the entry's compressed size.
-    pub fn compressed_size(&self) -> u32 {
-        self.header.compressed_size
+    pub fn compressed_size(&self) -> u64 {
+        self.compressed_size
     }
 
     /// Returns the entry's uncompressed size.
-    pub fn uncompressed_size(&self) -> u32 {
-        self.header.uncompressed_size
+    pub fn uncompressed_size(&self) -> u64 {
+        self.uncompressed_size
     }
 }
 
@@ -66,15 +78,16 @@ impl CentralDirectoryEntry {
 pub struct CentralDirectoryReader<R> {
     reader: R,
     initial: bool,
+    offset: u64,
 }
 
-impl<'a, R> CentralDirectoryReader<R>
+impl<'a, R> CentralDirectoryReader<Counting<R>>
 where
     R: AsyncRead + Unpin + 'a,
 {
     /// Constructs a new ZIP reader from a non-seekable source.
-    pub fn new(reader: R) -> Self {
-        Self { reader, initial: true }
+    pub fn new(reader: R, offset: u64) -> Self {
+        Self { reader: Counting::new(reader), offset, initial: true }
     }
 
     /// Reads the next [`CentralDirectoryEntry`] from the underlying source, advancing the
@@ -94,6 +107,7 @@ where
                 self.reader.read_exact(&mut buffer).await?;
                 u32::from_le_bytes(buffer)
             };
+            let offset = self.offset + self.reader.bytes_read();
             match signature {
                 CDH_SIGNATURE => (),
                 EOCDR_SIGNATURE => {
@@ -110,19 +124,20 @@ where
                     // Read the ZIP64 EOCDR.
                     let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut self.reader).await?;
 
-                    // Read the ZIP64 EOCDR locator signature.
-                    let signature = {
-                        let mut buffer = [0; 4];
-                        self.reader.read_exact(&mut buffer).await?;
-                        u32::from_le_bytes(buffer)
+                    // Read the ZIP64 EOCDR locator.
+                    let Some(zip64_eocdl) =
+                        Zip64EndOfCentralDirectoryLocator::try_from_reader(&mut self.reader).await?
+                    else {
+                        return Err(ZipError::MissingZip64EndOfCentralDirectoryLocator);
                     };
-                    if signature != ZIP64_EOCDL_SIGNATURE {
-                        return Err(ZipError::UnexpectedHeaderError(signature, ZIP64_EOCDR_SIGNATURE));
-                    }
 
-                    // Skip the ZIP64 EOCDR locator, which is 16 bytes.
-                    let mut buffer = [0; 16];
-                    self.reader.read_exact(&mut buffer).await?;
+                    // Verify that the ZIP64 EOCDR locator points to the correct offset.
+                    if zip64_eocdl.relative_offset != offset {
+                        return Err(ZipError::InvalidZip64EndOfCentralDirectoryLocatorOffset(
+                            zip64_eocdl.relative_offset,
+                            offset,
+                        ));
+                    }
 
                     // Read the EOCDR signature.
                     let signature = {
@@ -158,10 +173,43 @@ where
         let filename_basic = io::read_bytes(&mut self.reader, header.file_name_length.into()).await?;
         let extra_field = io::read_bytes(&mut self.reader, header.extra_field_length.into()).await?;
         let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size)?;
+        let zip64_extra_field = get_zip64_extra_field(&extra_fields);
+
+        // Reconcile the compressed size, uncompressed size, and file offset, using ZIP64 if necessary.
+        let compressed_size = if let Some(compressed_size) = zip64_extra_field
+            .and_then(|zip64| zip64.compressed_size)
+            .filter(|_| header.compressed_size == NON_ZIP64_MAX_SIZE)
+        {
+            compressed_size
+        } else {
+            header.compressed_size as u64
+        };
+        let uncompressed_size = if let Some(uncompressed_size) = zip64_extra_field
+            .and_then(|zip64| zip64.uncompressed_size)
+            .filter(|_| header.uncompressed_size == NON_ZIP64_MAX_SIZE)
+        {
+            uncompressed_size
+        } else {
+            header.uncompressed_size as u64
+        };
+        let lh_offset = if let Some(lh_offset) = zip64_extra_field
+            .and_then(|zip64| zip64.relative_header_offset)
+            .filter(|_| header.lh_offset == NON_ZIP64_MAX_SIZE)
+        {
+            lh_offset
+        } else {
+            header.lh_offset as u64
+        };
 
         // Parse out the filename.
         let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
 
-        Ok(Entry::CentralDirectoryEntry(CentralDirectoryEntry { header, filename }))
+        Ok(Entry::CentralDirectoryEntry(CentralDirectoryEntry {
+            header,
+            compressed_size,
+            uncompressed_size,
+            lh_offset,
+            filename,
+        }))
     }
 }
