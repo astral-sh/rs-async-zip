@@ -32,6 +32,17 @@ where
     Ok(buffer)
 }
 
+/// Skip a specified number of bytes in a reader which impls AsyncRead.
+pub(crate) async fn skip_bytes<R>(mut reader: R, length: usize) -> std::io::Result<()>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buffer = vec![0; length];
+    reader.read_exact(&mut buffer).await?;
+
+    Ok(())
+}
+
 /// A macro that returns the inner value of an Ok or early-returns in the case of an Err.
 ///
 /// This is almost identical to the ? operator but handles the situation when a Result is used in combination with

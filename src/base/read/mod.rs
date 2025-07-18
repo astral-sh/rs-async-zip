@@ -24,7 +24,6 @@ use crate::file::ZipFile;
 use crate::spec::attribute::AttributeCompatibility;
 use crate::spec::consts::LFH_LENGTH;
 use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH, ZIP64_EOCDL_LENGTH};
-use crate::spec::header::InfoZipUnicodeCommentExtraField;
 use crate::spec::header::InfoZipUnicodePathExtraField;
 use crate::spec::header::{
     CentralDirectoryRecord, EndOfCentralDirectoryHeader, ExtraField, LocalFileHeader,
@@ -46,12 +45,13 @@ where
     R: AsyncRead + AsyncSeek + Unpin,
 {
     // First find and parse the EOCDR.
-    let eocdr_offset = crate::base::read::io::locator::eocdr(&mut reader).await?;
+    let eocdr_offset = io::locator::eocdr(&mut reader).await?;
 
     reader.seek(SeekFrom::Start(eocdr_offset)).await?;
     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut reader).await?;
 
-    let comment = io::read_string(&mut reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8).await?;
+    // Skip the comment, which is optional.
+    io::skip_bytes(&mut reader, eocdr.file_comm_length.into()).await?;
 
     // Check the 20 bytes before the EOCDR for the Zip64 EOCDL, plus an extra 4 bytes because the offset
     // does not include the signature. If the ECODL exists we are dealing with a Zip64 file.
@@ -88,7 +88,7 @@ where
         BufReader::with_capacity(std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE), reader);
     let entries = crate::base::read::cd(buf, eocdr.num_entries_in_directory, zip64).await?;
 
-    Ok(ZipFile { entries, comment, zip64 })
+    Ok(ZipFile { entries, zip64 })
 }
 
 pub(crate) async fn cd<R>(mut reader: R, num_of_entries: u64, zip64: bool) -> Result<Vec<StoredZipEntry>>
@@ -152,7 +152,9 @@ where
     let compression = Compression::try_from(header.compression)?;
     let extra_field = io::read_bytes(&mut reader, header.extra_field_length.into()).await?;
     let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size)?;
-    let comment_basic = io::read_bytes(reader, header.file_comment_length.into()).await?;
+
+    // Skip the file comment, which is optional.
+    io::skip_bytes(&mut reader, header.file_comment_length.into()).await?;
 
     let zip64_extra_field = get_zip64_extra_field(&extra_fields);
     let (uncompressed_size, compressed_size) =
@@ -168,7 +170,6 @@ where
     }
 
     let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
-    let comment = detect_comment(comment_basic, header.flags.filename_unicode, extra_fields.as_ref());
 
     let entry = ZipEntry {
         filename,
@@ -191,7 +192,6 @@ where
         internal_file_attribute: header.inter_attr,
         external_file_attribute: header.exter_attr,
         extra_fields,
-        comment,
         data_descriptor: header.flags.data_descriptor,
         file_offset,
     };
@@ -256,7 +256,6 @@ where
         internal_file_attribute: 0,
         external_file_attribute: 0,
         extra_fields,
-        comment: String::new().into(),
         data_descriptor: header.flags.data_descriptor,
         file_offset,
     };
@@ -264,41 +263,11 @@ where
     Ok(Some(entry))
 }
 
-fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
-    if basic_is_utf8 {
-        ZipString::new(basic, StringEncoding::Utf8)
-    } else {
-        let unicode_extra = extra_fields.iter().find_map(|field| match field {
-            ExtraField::InfoZipUnicodeComment(InfoZipUnicodeCommentExtraField::V1 { crc32, unicode }) => {
-                if *crc32 == crc32fast::hash(&basic) {
-                    Some(std::string::String::from_utf8(unicode.clone()))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        });
-        if let Some(Ok(s)) = unicode_extra {
-            ZipString::new_with_alternative(s, basic)
-        } else {
-            // Do not treat as UTF-8 if UTF-8 flags are not set,
-            // some string in MBCS may be valid UTF-8 in form, but they are not in truth.
-            if basic.is_ascii() {
-                // SAFETY:
-                // a valid ASCII string is always a valid UTF-8 string
-                unsafe { std::string::String::from_utf8_unchecked(basic).into() }
-            } else {
-                ZipString::new(basic, StringEncoding::Raw)
-            }
-        }
-    }
-}
-
 fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
     let unicode_extra = extra_fields.iter().find_map(|field| match field {
         ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32, unicode }) => {
             if !unicode.is_empty() && *crc32 == crc32fast::hash(&basic) {
-                Some(std::string::String::from_utf8(unicode.clone()))
+                Some(String::from_utf8(unicode.clone()))
             } else {
                 None
             }
@@ -315,7 +284,7 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
         if basic.is_ascii() {
             // SAFETY:
             // a valid ASCII string is always a valid UTF-8 string
-            unsafe { std::string::String::from_utf8_unchecked(basic).into() }
+            unsafe { String::from_utf8_unchecked(basic).into() }
         } else {
             ZipString::new(basic, StringEncoding::Raw)
         }

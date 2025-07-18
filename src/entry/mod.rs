@@ -36,7 +36,6 @@ pub struct ZipEntry {
     pub(crate) internal_file_attribute: u16,
     pub(crate) external_file_attribute: u32,
     pub(crate) extra_fields: Vec<ExtraField>,
-    pub(crate) comment: ZipString,
     pub(crate) data_descriptor: bool,
     pub(crate) file_offset: u64,
 }
@@ -95,11 +94,6 @@ impl ZipEntry {
     /// Returns the entry's extra field data.
     pub fn extra_fields(&self) -> &[ExtraField] {
         &self.extra_fields
-    }
-
-    /// Returns the entry's file comment.
-    pub fn comment(&self) -> &ZipString {
-        &self.comment
     }
 
     /// Returns the entry's integer-based UNIX permissions.
