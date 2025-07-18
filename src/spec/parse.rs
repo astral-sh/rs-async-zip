@@ -320,8 +320,8 @@ pub fn parse_extra_fields(data: Vec<u8>, uncompressed_size: u32, compressed_size
     while cursor + 4 < data.len() {
         let header_id: HeaderId = u16::from_le_bytes(data[cursor..cursor + 2].try_into().unwrap()).into();
         let field_size = u16::from_le_bytes(data[cursor + 2..cursor + 4].try_into().unwrap());
-        if cursor + 8 + field_size as usize > data.len() {
-            return Err(ZipError::InvalidExtraFieldHeader(field_size, data.len() - cursor - 8 - field_size as usize));
+        if cursor + 4 + field_size as usize > data.len() {
+            return Err(ZipError::InvalidExtraFieldHeader(field_size, data.len() - cursor - 4 - field_size as usize));
         }
 
         // Decode the extra field data.
