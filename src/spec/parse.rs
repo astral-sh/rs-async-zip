@@ -9,88 +9,6 @@ use crate::spec::header::{
 
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
-impl LocalFileHeader {
-    pub fn as_slice(&self) -> [u8; 26] {
-        let mut array = [0; 26];
-        let mut cursor = 0;
-
-        array_push!(array, cursor, self.version.to_le_bytes());
-        array_push!(array, cursor, self.flags.as_slice());
-        array_push!(array, cursor, self.compression.to_le_bytes());
-        array_push!(array, cursor, self.mod_time.to_le_bytes());
-        array_push!(array, cursor, self.mod_date.to_le_bytes());
-        array_push!(array, cursor, self.crc.to_le_bytes());
-        array_push!(array, cursor, self.compressed_size.to_le_bytes());
-        array_push!(array, cursor, self.uncompressed_size.to_le_bytes());
-        array_push!(array, cursor, self.file_name_length.to_le_bytes());
-        array_push!(array, cursor, self.extra_field_length.to_le_bytes());
-
-        array
-    }
-}
-
-impl GeneralPurposeFlag {
-    pub fn as_slice(&self) -> [u8; 2] {
-        let encrypted: u16 = match self.encrypted {
-            false => 0x0,
-            true => 0b1,
-        };
-        let data_descriptor: u16 = match self.data_descriptor {
-            false => 0x0,
-            true => 0x8,
-        };
-        let filename_unicode: u16 = match self.filename_unicode {
-            false => 0x0,
-            true => 0x800,
-        };
-
-        (encrypted | data_descriptor | filename_unicode).to_le_bytes()
-    }
-}
-
-impl CentralDirectoryRecord {
-    pub fn as_slice(&self) -> [u8; 42] {
-        let mut array = [0; 42];
-        let mut cursor = 0;
-
-        array_push!(array, cursor, self.v_made_by.to_le_bytes());
-        array_push!(array, cursor, self.v_needed.to_le_bytes());
-        array_push!(array, cursor, self.flags.as_slice());
-        array_push!(array, cursor, self.compression.to_le_bytes());
-        array_push!(array, cursor, self.mod_time.to_le_bytes());
-        array_push!(array, cursor, self.mod_date.to_le_bytes());
-        array_push!(array, cursor, self.crc.to_le_bytes());
-        array_push!(array, cursor, self.compressed_size.to_le_bytes());
-        array_push!(array, cursor, self.uncompressed_size.to_le_bytes());
-        array_push!(array, cursor, self.file_name_length.to_le_bytes());
-        array_push!(array, cursor, self.extra_field_length.to_le_bytes());
-        array_push!(array, cursor, self.file_comment_length.to_le_bytes());
-        array_push!(array, cursor, self.disk_start.to_le_bytes());
-        array_push!(array, cursor, self.inter_attr.to_le_bytes());
-        array_push!(array, cursor, self.exter_attr.to_le_bytes());
-        array_push!(array, cursor, self.lh_offset.to_le_bytes());
-
-        array
-    }
-}
-
-impl EndOfCentralDirectoryHeader {
-    pub fn as_slice(&self) -> [u8; 18] {
-        let mut array = [0; 18];
-        let mut cursor = 0;
-
-        array_push!(array, cursor, self.disk_num.to_le_bytes());
-        array_push!(array, cursor, self.start_cent_dir_disk.to_le_bytes());
-        array_push!(array, cursor, self.num_of_entries_disk.to_le_bytes());
-        array_push!(array, cursor, self.num_of_entries.to_le_bytes());
-        array_push!(array, cursor, self.size_cent_dir.to_le_bytes());
-        array_push!(array, cursor, self.cent_dir_offset.to_le_bytes());
-        array_push!(array, cursor, self.file_comm_length.to_le_bytes());
-
-        array
-    }
-}
-
 impl From<[u8; 26]> for LocalFileHeader {
     fn from(value: [u8; 26]) -> LocalFileHeader {
         LocalFileHeader {
@@ -298,17 +216,6 @@ impl Zip64EndOfCentralDirectoryLocator {
         let mut buffer: [u8; 16] = [0; 16];
         reader.read_exact(&mut buffer).await?;
         Ok(Some(Self::from(buffer)))
-    }
-
-    pub fn as_bytes(&self) -> [u8; 16] {
-        let mut array = [0; 16];
-        let mut cursor = 0;
-
-        array_push!(array, cursor, self.number_of_disk_with_start_of_zip64_end_of_central_directory.to_le_bytes());
-        array_push!(array, cursor, self.relative_offset.to_le_bytes());
-        array_push!(array, cursor, self.total_number_of_disks.to_le_bytes());
-
-        array
     }
 }
 

@@ -3,38 +3,11 @@
 
 use async_zip::base::read::mem;
 use async_zip::base::read::seek;
-use async_zip::base::write::ZipFileWriter;
-use async_zip::Compression;
-use async_zip::ZipEntryBuilder;
-use futures_lite::io::AsyncWriteExt;
 use tokio::fs::File;
 use tokio::io::BufReader;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 const FOLDER_PREFIX: &str = "tests/test_inputs";
-
-const FILE_LIST: &[&str] = &[
-    "sample_data/alpha/back_to_front.txt",
-    "sample_data/alpha/front_to_back.txt",
-    "sample_data/numeric/forward.txt",
-    "sample_data/numeric/reverse.txt",
-];
-
-pub async fn compress_to_mem(compress: Compression) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(10_000);
-    let mut writer = ZipFileWriter::new(&mut bytes);
-
-    for fname in FILE_LIST {
-        let content = tokio::fs::read(format!("{FOLDER_PREFIX}/{fname}")).await.unwrap();
-        let opts = ZipEntryBuilder::new(fname.to_string().into(), compress);
-
-        let mut entry_writer = writer.write_entry_stream(opts).await.unwrap();
-        entry_writer.write_all(&content).await.unwrap();
-        entry_writer.close().await.unwrap();
-    }
-    writer.close().await.unwrap();
-    bytes
-}
 
 #[cfg(feature = "tokio-fs")]
 pub async fn check_decompress_fs(fname: &str) {
