@@ -25,17 +25,3 @@ use tokio;
 use tokio_util;
 
 pub mod read;
-
-pub mod write {
-    //! A module which supports writing ZIP files.
-
-    #[cfg(doc)]
-    use crate::base;
-    use tokio_util::compat::Compat;
-
-    /// A [`tokio`]-specific type alias for [`base::write::ZipFileWriter`];
-    pub type ZipFileWriter<W> = crate::base::write::ZipFileWriter<Compat<W>>;
-
-    /// A [`tokio`]-specific type alias for [`base::write::EntryStreamWriter`];
-    pub type EntryStreamWriter<'a, W> = crate::base::write::EntryStreamWriter<'a, Compat<W>>;
-}

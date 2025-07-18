@@ -1,13 +1,10 @@
 // Copyright (c) 2022 Harry [Majored] [hello@majored.pw]
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
-pub mod builder;
-
 use std::ops::Deref;
 
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, SeekFrom};
 
-use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
@@ -18,10 +15,6 @@ use crate::spec::{
 use crate::{string::ZipString, ZipDateTime};
 
 /// An immutable store of data about a ZIP entry.
-///
-/// This type cannot be directly constructed so instead, the [`ZipEntryBuilder`] must be used. Internally this builder
-/// stores a [`ZipEntry`] so conversions between these two types via the [`From`] implementations will be
-/// non-allocating.
 #[derive(Clone, Debug)]
 pub struct ZipEntry {
     pub(crate) filename: ZipString,
@@ -48,40 +41,7 @@ pub struct ZipEntry {
     pub(crate) file_offset: u64,
 }
 
-impl From<ZipEntryBuilder> for ZipEntry {
-    fn from(builder: ZipEntryBuilder) -> Self {
-        builder.0
-    }
-}
-
 impl ZipEntry {
-    pub(crate) fn new(filename: ZipString, compression: Compression) -> Self {
-        ZipEntry {
-            filename,
-            compression,
-            #[cfg(any(
-                feature = "deflate",
-                feature = "bzip2",
-                feature = "zstd",
-                feature = "lzma",
-                feature = "xz",
-                feature = "deflate64"
-            ))]
-            compression_level: async_compression::Level::Default,
-            crc32: 0,
-            uncompressed_size: 0,
-            compressed_size: 0,
-            attribute_compatibility: AttributeCompatibility::Unix,
-            last_modification_date: ZipDateTime::default(),
-            internal_file_attribute: 0,
-            external_file_attribute: 0,
-            extra_fields: Vec::new(),
-            comment: String::new().into(),
-            data_descriptor: false,
-            file_offset: 0,
-        }
-    }
-
     /// Returns the entry's filename.
     ///
     /// ## Note

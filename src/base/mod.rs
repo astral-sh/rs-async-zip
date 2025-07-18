@@ -4,4 +4,3 @@
 //! A base runtime-agnostic implementation using `futures`'s IO types.
 
 pub mod read;
-pub mod write;

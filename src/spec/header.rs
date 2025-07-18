@@ -81,15 +81,6 @@ pub struct Zip64ExtendedInformationExtraField {
     pub disk_start_number: Option<u32>,
 }
 
-impl Zip64ExtendedInformationExtraField {
-    pub(crate) fn content_size(&self) -> usize {
-        self.uncompressed_size.map(|_| 8).unwrap_or_default()
-            + self.compressed_size.map(|_| 8).unwrap_or_default()
-            + self.relative_header_offset.map(|_| 8).unwrap_or_default()
-            + self.disk_start_number.map(|_| 8).unwrap_or_default()
-    }
-}
-
 /// Stores the UTF-8 version of the file comment as stored in the central directory header.
 /// https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#468
 #[derive(Clone, Debug)]

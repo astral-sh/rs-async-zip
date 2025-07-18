@@ -6,7 +6,9 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 
 mod common;
 
+#[cfg(feature = "zstd")]
 const ZSTD_ZIP_FILE: &str = "tests/test_inputs/sample_data.zstd.zip";
+#[cfg(feature = "deflate")]
 const DEFLATE_ZIP_FILE: &str = "tests/test_inputs/sample_data.deflate.zip";
 const STORE_ZIP_FILE: &str = "tests/test_inputs/sample_data.store.zip";
 const UTF8_EXTRA_ZIP_FILE: &str = "tests/test_inputs/sample_data_utf8_extra.zip";
@@ -21,13 +23,6 @@ async fn decompress_zstd_zip_seek() {
 #[tokio::test]
 async fn decompress_deflate_zip_seek() {
     common::check_decompress_seek(DEFLATE_ZIP_FILE).await
-}
-
-#[tokio::test]
-async fn check_empty_zip_seek() {
-    let mut data: Vec<u8> = Vec::new();
-    async_zip::base::write::ZipFileWriter::new(futures::io::Cursor::new(&mut data)).close().await.unwrap();
-    async_zip::base::read::seek::ZipFileReader::new(futures::io::Cursor::new(&data)).await.unwrap();
 }
 
 #[tokio::test]
