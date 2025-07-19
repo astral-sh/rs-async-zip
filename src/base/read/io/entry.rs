@@ -1,6 +1,7 @@
 // Copyright (c) 2022 Harry [Majored] [hello@majored.pw]
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
+use crate::base::read::counting::Counting;
 use crate::base::read::io::{compressed::CompressedReader, hashed::HashedReader, owned::OwnedReader};
 use crate::entry::ZipEntry;
 use crate::error::{Result, ZipError};
@@ -22,7 +23,7 @@ pub struct WithoutEntry;
 #[pin_project]
 pub struct ZipEntryReader<'a, R, E> {
     #[pin]
-    reader: HashedReader<CompressedReader<Take<OwnedReader<'a, R>>>>,
+    reader: HashedReader<CompressedReader<Counting<Take<OwnedReader<'a, R>>>>>,
     entry: E,
 }
 
@@ -32,13 +33,17 @@ where
 {
     /// Constructs a new entry reader from its required parameters (incl. an owned R).
     pub(crate) fn new_with_owned(reader: R, compression: Compression, size: u64) -> Self {
-        let reader = HashedReader::new(CompressedReader::new(OwnedReader::Owned(reader).take(size), compression));
+        let reader =
+            HashedReader::new(CompressedReader::new(Counting::new(OwnedReader::Owned(reader).take(size)), compression));
         Self { reader, entry: WithoutEntry }
     }
 
     /// Constructs a new entry reader from its required parameters (incl. a mutable borrow of an R).
     pub(crate) fn new_with_borrow(reader: &'a mut R, compression: Compression, size: u64) -> Self {
-        let reader = HashedReader::new(CompressedReader::new(OwnedReader::Borrow(reader).take(size), compression));
+        let reader = HashedReader::new(CompressedReader::new(
+            Counting::new(OwnedReader::Borrow(reader).take(size)),
+            compression,
+        ));
         Self { reader, entry: WithoutEntry }
     }
 
@@ -71,9 +76,14 @@ where
         self.reader.swap_and_compute_hash()
     }
 
+    /// Return the number of bytes read so far by this reader.
+    pub fn bytes_read(&self) -> u64 {
+        self.reader.inner().inner().bytes_read()
+    }
+
     /// Consumes this reader and returns the inner value.
     pub(crate) fn into_inner(self) -> R {
-        self.reader.into_inner().into_inner().into_inner().owned_into_inner()
+        self.reader.into_inner().into_inner().into_inner().into_inner().owned_into_inner()
     }
 }
 
