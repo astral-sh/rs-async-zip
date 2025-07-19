@@ -76,8 +76,6 @@ pub enum ZipError {
     MissingZip64EndOfCentralDirectoryLocator,
     #[error("the zip64 end of central directory locator offset ({0:#x}) did not match the actual offset ({1:#x})")]
     InvalidZip64EndOfCentralDirectoryLocatorOffset(u64, u64),
-    #[error("zip64 extended information field was too short: expected {expected} bytes, but only {actual} bytes were provided")]
-    Zip64ExtendedInformationFieldTooShort { expected: usize, actual: usize },
     #[error(
         "zip64 extended information field was too long: expected {expected} bytes, but {actual} bytes were provided"
     )]

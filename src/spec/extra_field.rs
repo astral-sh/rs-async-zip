@@ -54,10 +54,6 @@ fn zip64_extended_information_field_from_bytes(
         None
     };
 
-    if current_idx == 0 {
-        return Err(ZipError::Zip64ExtendedInformationFieldTooShort { expected: 8, actual: data.len() });
-    }
-
     if current_idx != data.len() {
         return Err(ZipError::Zip64ExtendedInformationFieldTooLong { expected: data.len(), actual: current_idx });
     }
