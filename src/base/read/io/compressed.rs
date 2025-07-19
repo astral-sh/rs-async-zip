@@ -60,6 +60,25 @@ where
     }
 
     /// Consumes this reader and returns the inner value.
+    pub(crate) fn inner(&self) -> &R {
+        match self {
+            CompressedReader::Stored(inner) => inner,
+            #[cfg(feature = "deflate")]
+            CompressedReader::Deflate(inner) => inner.get_ref(),
+            #[cfg(feature = "deflate64")]
+            CompressedReader::Deflate64(inner) => inner.get_ref(),
+            #[cfg(feature = "bzip2")]
+            CompressedReader::Bz(inner) => inner.get_ref(),
+            #[cfg(feature = "lzma")]
+            CompressedReader::Lzma(inner) => inner.get_ref(),
+            #[cfg(feature = "zstd")]
+            CompressedReader::Zstd(inner) => inner.get_ref(),
+            #[cfg(feature = "xz")]
+            CompressedReader::Xz(inner) => inner.get_ref(),
+        }
+    }
+
+    /// Consumes this reader and returns the inner value.
     pub(crate) fn into_inner(self) -> R {
         match self {
             CompressedReader::Stored(inner) => inner,

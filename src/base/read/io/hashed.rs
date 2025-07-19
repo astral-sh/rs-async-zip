@@ -36,6 +36,11 @@ where
         std::mem::take(&mut self.hasher).finalize()
     }
 
+    /// Returns a reference to the inner reader.
+    pub(crate) fn inner(&self) -> &R {
+        &self.reader
+    }
+
     /// Consumes this reader and returns the inner value.
     pub(crate) fn into_inner(self) -> R {
         self.reader
