@@ -40,3 +40,4 @@ pub const NON_ZIP64_MAX_SIZE: u32 = 0xFFFFFFFF;
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#439
 pub const DATA_DESCRIPTOR_SIGNATURE: u32 = 0x8074b50;
 pub const DATA_DESCRIPTOR_LENGTH: usize = 12;
+pub const ZIP64_DATA_DESCRIPTOR_LENGTH: usize = 20;

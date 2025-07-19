@@ -199,6 +199,50 @@ impl DataDescriptor {
     }
 }
 
+impl Zip64DataDescriptor {
+    pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Zip64DataDescriptor> {
+        // Read the first four bytes to check for the data descriptor signature.
+        let mut signature: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
+        reader.read_exact(&mut signature).await?;
+
+        // The data descriptor signature is optional.
+        if signature[0..SIGNATURE_LENGTH] == DATA_DESCRIPTOR_SIGNATURE.to_le_bytes() {
+            // If present, read the remaining bytes.
+            let mut descriptor: [u8; ZIP64_DATA_DESCRIPTOR_LENGTH] = [0; ZIP64_DATA_DESCRIPTOR_LENGTH];
+            reader.read_exact(&mut descriptor).await?;
+
+            Ok(Zip64DataDescriptor {
+                crc: u32::from_le_bytes(descriptor[0..4].try_into().unwrap()),
+                compressed_size: u64::from_le_bytes(descriptor[4..12].try_into().unwrap()),
+                uncompressed_size: u64::from_le_bytes(descriptor[12..20].try_into().unwrap()),
+            })
+        } else {
+            // If absent, read the remaining bytes without the signature, and use the first four
+            // bytes as the CRC.
+            let mut descriptor: [u8; ZIP64_DATA_DESCRIPTOR_LENGTH - SIGNATURE_LENGTH] =
+                [0; ZIP64_DATA_DESCRIPTOR_LENGTH - SIGNATURE_LENGTH];
+            reader.read_exact(&mut descriptor).await?;
+
+            Ok(Zip64DataDescriptor {
+                crc: u32::from_le_bytes(signature),
+                compressed_size: u64::from_le_bytes(descriptor[0..8].try_into().unwrap()),
+                uncompressed_size: u64::from_le_bytes(descriptor[8..16].try_into().unwrap()),
+            })
+        }
+    }
+
+    pub fn as_bytes(&self) -> [u8; ZIP64_DATA_DESCRIPTOR_LENGTH] {
+        let mut array = [0; ZIP64_DATA_DESCRIPTOR_LENGTH];
+        let mut cursor = 0;
+
+        array_push!(array, cursor, self.crc.to_le_bytes());
+        array_push!(array, cursor, self.compressed_size.to_le_bytes());
+        array_push!(array, cursor, self.uncompressed_size.to_le_bytes());
+
+        array
+    }
+}
+
 impl Zip64EndOfCentralDirectoryLocator {
     /// Read 4 bytes from the reader and check whether its signature matches that of the EOCDL.
     /// If it does, return Some(EOCDL), otherwise return None.
@@ -230,7 +274,7 @@ pub fn parse_extra_fields(
     let mut cursor = 0;
     let mut extra_fields = Vec::<ExtraField>::new();
 
-    while cursor + 4 < data.len() {
+    while cursor + 4 <= data.len() {
         let header_id: HeaderId = u16::from_le_bytes(data[cursor..cursor + 2].try_into().unwrap()).into();
         let field_size = u16::from_le_bytes(data[cursor + 2..cursor + 4].try_into().unwrap());
         if cursor + 4 + field_size as usize > data.len() {
@@ -272,8 +316,11 @@ macro_rules! array_push {
     }};
 }
 
-use crate::spec::consts::{DATA_DESCRIPTOR_LENGTH, DATA_DESCRIPTOR_SIGNATURE, SIGNATURE_LENGTH, ZIP64_EOCDL_SIGNATURE};
-use crate::spec::data_descriptor::DataDescriptor;
+use crate::spec::consts::{
+    DATA_DESCRIPTOR_LENGTH, DATA_DESCRIPTOR_SIGNATURE, SIGNATURE_LENGTH, ZIP64_DATA_DESCRIPTOR_LENGTH,
+    ZIP64_EOCDL_SIGNATURE,
+};
+use crate::spec::data_descriptor::{DataDescriptor, Zip64DataDescriptor};
 use crate::spec::extra_field::extra_field_from_bytes;
 pub(crate) use array_push;
 

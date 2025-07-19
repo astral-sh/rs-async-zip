@@ -50,7 +50,7 @@ use crate::base::read::counting::Counting;
 use crate::base::read::io::entry::ZipEntryReader;
 use crate::error::Result;
 use crate::error::ZipError;
-use crate::spec::data_descriptor::DataDescriptor;
+use crate::spec::data_descriptor::{CombinedDataDescriptor, DataDescriptor, Zip64DataDescriptor};
 #[cfg(feature = "tokio")]
 use crate::tokio::read::stream::Ready as TokioReady;
 
@@ -59,6 +59,7 @@ use futures_lite::io::AsyncReadExt;
 
 use super::io::entry::WithEntry;
 use super::io::entry::WithoutEntry;
+use crate::spec::header::HeaderId;
 #[cfg(feature = "tokio")]
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
@@ -66,7 +67,15 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 pub struct Ready<R>(R);
 
 /// A type which encodes that [`ZipFileReader`] is currently reading an entry.
-pub struct Reading<'a, R, E>(ZipEntryReader<'a, R, E>, bool);
+pub struct Reading<'a, R, E>(ZipEntryReader<'a, R, E>, Option<Suffix>);
+
+#[derive(Copy, Clone, Debug)]
+enum Suffix {
+    /// The entry is followed by a data descriptor.
+    DataDescriptor,
+    /// The entry is followed by a ZIP64 data descriptor.
+    Zip64DataDescriptor,
+}
 
 /// A ZIP reader which acts over a non-seekable source.
 ///
@@ -94,7 +103,17 @@ where
         let length = if entry.data_descriptor { u64::MAX } else { entry.compressed_size };
         let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length);
 
-        Ok(Some(ZipFileReader(Reading(reader, entry.data_descriptor))))
+        let suffix = if entry.data_descriptor {
+            if entry.extra_fields.iter().any(|ef| ef.header_id() == HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD) {
+                Some(Suffix::Zip64DataDescriptor)
+            } else {
+                Some(Suffix::DataDescriptor)
+            }
+        } else {
+            None
+        };
+
+        Ok(Some(ZipFileReader(Reading(reader, suffix))))
     }
 
     /// Opens the next entry for reading if the central directory hasn’t yet been reached.
@@ -107,9 +126,18 @@ where
 
         let length = if entry.data_descriptor { u64::MAX } else { entry.compressed_size };
         let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length);
-        let data_descriptor = entry.data_descriptor;
 
-        Ok(Some(ZipFileReader(Reading(reader.into_with_entry_owned(entry), data_descriptor))))
+        let suffix = if entry.data_descriptor {
+            if entry.extra_fields.iter().any(|ef| ef.header_id() == HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD) {
+                Some(Suffix::Zip64DataDescriptor)
+            } else {
+                Some(Suffix::DataDescriptor)
+            }
+        } else {
+            None
+        };
+
+        Ok(Some(ZipFileReader(Reading(reader.into_with_entry_owned(entry), suffix))))
     }
 
     /// Consumes the `ZipFileReader` returning the original `reader`
@@ -134,7 +162,7 @@ where
     }
 }
 
-type Next<R> = (Option<DataDescriptor>, ZipFileReader<Ready<R>>);
+type Next<R> = (Option<CombinedDataDescriptor>, ZipFileReader<Ready<R>>);
 
 impl<'a, R, E> ZipFileReader<Reading<'a, R, E>>
 where
@@ -158,7 +186,15 @@ where
 
         let mut inner = self.0 .0.into_inner();
 
-        let data_descriptor = if self.0 .1 { Some(DataDescriptor::from_reader(&mut inner).await?) } else { None };
+        let data_descriptor = match self.0 .1 {
+            Some(Suffix::DataDescriptor) => {
+                Some(CombinedDataDescriptor::from(DataDescriptor::from_reader(&mut inner).await?))
+            }
+            Some(Suffix::Zip64DataDescriptor) => {
+                Some(CombinedDataDescriptor::from(Zip64DataDescriptor::from_reader(&mut inner).await?))
+            }
+            None => None,
+        };
 
         let reader = ZipFileReader(Ready(inner));
 
@@ -170,7 +206,15 @@ where
         while self.0 .0.read(&mut [0; 2048]).await? != 0 {}
         let mut inner = self.0 .0.into_inner();
 
-        let data_descriptor = if self.0 .1 { Some(DataDescriptor::from_reader(&mut inner).await?) } else { None };
+        let data_descriptor = match self.0 .1 {
+            Some(Suffix::DataDescriptor) => {
+                Some(CombinedDataDescriptor::from(DataDescriptor::from_reader(&mut inner).await?))
+            }
+            Some(Suffix::Zip64DataDescriptor) => {
+                Some(CombinedDataDescriptor::from(Zip64DataDescriptor::from_reader(&mut inner).await?))
+            }
+            None => None,
+        };
 
         let reader = ZipFileReader(Ready(inner));
 
