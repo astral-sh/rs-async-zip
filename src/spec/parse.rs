@@ -220,7 +220,13 @@ impl Zip64EndOfCentralDirectoryLocator {
 }
 
 /// Parse the extra fields.
-pub fn parse_extra_fields(data: Vec<u8>, uncompressed_size: u32, compressed_size: u32) -> Result<Vec<ExtraField>> {
+pub fn parse_extra_fields(
+    data: Vec<u8>,
+    uncompressed_size: u32,
+    compressed_size: u32,
+    relative_header_offset: Option<u32>,
+    disk_start_number: Option<u16>,
+) -> Result<Vec<ExtraField>> {
     let mut cursor = 0;
     let mut extra_fields = Vec::<ExtraField>::new();
 
@@ -233,7 +239,15 @@ pub fn parse_extra_fields(data: Vec<u8>, uncompressed_size: u32, compressed_size
 
         // Decode the extra field data.
         let data = &data[cursor + 4..cursor + 4 + field_size as usize];
-        let extra_field = extra_field_from_bytes(header_id, field_size, data, uncompressed_size, compressed_size)?;
+        let extra_field = extra_field_from_bytes(
+            header_id,
+            field_size,
+            data,
+            uncompressed_size,
+            compressed_size,
+            relative_header_offset,
+            disk_start_number,
+        )?;
 
         // Verify that the extra field doesn't contain duplicates.
         for seen in &extra_fields {

@@ -151,7 +151,13 @@ where
     let filename_basic = io::read_bytes(&mut reader, header.file_name_length.into()).await?;
     let compression = Compression::try_from(header.compression)?;
     let extra_field = io::read_bytes(&mut reader, header.extra_field_length.into()).await?;
-    let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size)?;
+    let extra_fields = parse_extra_fields(
+        extra_field,
+        header.uncompressed_size,
+        header.compressed_size,
+        Some(header.lh_offset),
+        Some(header.disk_start),
+    )?;
     let comment_basic = io::read_bytes(reader, header.file_comment_length.into()).await?;
 
     let zip64_extra_field = get_zip64_extra_field(&extra_fields);
@@ -218,7 +224,7 @@ where
     let filename_basic = io::read_bytes(&mut reader, header.file_name_length.into()).await?;
     let compression = Compression::try_from(header.compression)?;
     let extra_field = io::read_bytes(&mut reader, header.extra_field_length.into()).await?;
-    let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size)?;
+    let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size, None, None)?;
 
     let zip64_extra_field = get_zip64_extra_field(&extra_fields);
     let (uncompressed_size, compressed_size) =
