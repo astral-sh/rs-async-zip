@@ -119,6 +119,14 @@ where
                         io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                             .await?;
 
+                    // Verify that the EOCDR offset matches the current reader offset.
+                    if eocdr.central_directory_offset() != self.offset {
+                        return Err(ZipError::InvalidEndOfCentralDirectoryOffset(
+                            eocdr.central_directory_offset(),
+                            offset,
+                        ));
+                    }
+
                     return Ok(Entry::EndOfCentralDirectoryRecord(
                         CombinedCentralDirectoryRecord::from(&eocdr),
                         comment,
@@ -161,10 +169,18 @@ where
                         io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
                             .await?;
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord(
-                        CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr),
-                        comment,
-                    ));
+                    // Combine the EOCDR and ZIP64 EOCDR.
+                    let combined = CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr);
+
+                    // Verify that the EOCDR offset matches the current reader offset.
+                    if combined.central_directory_offset() != self.offset {
+                        return Err(ZipError::InvalidEndOfCentralDirectoryOffset(
+                            combined.central_directory_offset(),
+                            offset,
+                        ));
+                    }
+
+                    return Ok(Entry::EndOfCentralDirectoryRecord(combined, comment));
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
