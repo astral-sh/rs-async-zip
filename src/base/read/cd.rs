@@ -15,7 +15,7 @@ use crate::ZipString;
 /// An entry returned by the [`CentralDirectoryReader`].
 pub enum Entry {
     CentralDirectoryEntry(CentralDirectoryEntry),
-    EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord),
+    EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord, ZipString),
 }
 
 /// An entry in the ZIP file's central directory.
@@ -114,11 +114,15 @@ where
                     // Read the end-of-central-directory header.
                     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut self.reader).await?;
 
-                    // Advance past the EOCDR comment, which is optional.
-                    io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
-                        .await?;
+                    // Read the EOCDR comment.
+                    let comment =
+                        io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
+                            .await?;
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord::from(&eocdr)));
+                    return Ok(Entry::EndOfCentralDirectoryRecord(
+                        CombinedCentralDirectoryRecord::from(&eocdr),
+                        comment,
+                    ));
                 }
                 ZIP64_EOCDR_SIGNATURE => {
                     // Read the ZIP64 EOCDR.
@@ -152,14 +156,15 @@ where
                     // Read the end-of-central-directory header.
                     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut self.reader).await?;
 
-                    // Advance past the EOCDR comment, which is optional.
-                    io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
-                        .await?;
+                    // Read the EOCDR comment.
+                    let comment =
+                        io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
+                            .await?;
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord::combine(
-                        eocdr,
-                        zip64_eocdr,
-                    )));
+                    return Ok(Entry::EndOfCentralDirectoryRecord(
+                        CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr),
+                        comment,
+                    ));
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
