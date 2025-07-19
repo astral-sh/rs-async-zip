@@ -15,6 +15,8 @@ fn zip64_extended_information_field_from_bytes(
     data: &[u8],
     uncompressed_size: u32,
     compressed_size: u32,
+    relative_header_offset: Option<u32>,
+    disk_start_number: Option<u16>,
 ) -> ZipResult<Zip64ExtendedInformationExtraField> {
     // slice.take is nightly-only so we'll just use an index to track the current position
     let mut current_idx = 0;
@@ -34,7 +36,8 @@ fn zip64_extended_information_field_from_bytes(
         None
     };
 
-    let relative_header_offset = if data.len() >= current_idx + 8 {
+    let relative_header_offset = if relative_header_offset == Some(NON_ZIP64_MAX_SIZE) && data.len() >= current_idx + 8
+    {
         let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
         current_idx += 8;
         val
@@ -43,13 +46,21 @@ fn zip64_extended_information_field_from_bytes(
     };
 
     #[allow(unused_assignments)]
-    let disk_start_number = if data.len() >= current_idx + 4 {
+    let disk_start_number = if disk_start_number == Some(0xFFFF) && data.len() >= current_idx + 4 {
         let val = Some(u32::from_le_bytes(data[current_idx..current_idx + 4].try_into().unwrap()));
         current_idx += 4;
         val
     } else {
         None
     };
+
+    if current_idx == 0 {
+        return Err(ZipError::Zip64ExtendedInformationFieldTooShort { expected: 8, actual: data.len() });
+    }
+
+    if current_idx != data.len() {
+        return Err(ZipError::Zip64ExtendedInformationFieldTooLong { expected: data.len(), actual: current_idx });
+    }
 
     Ok(Zip64ExtendedInformationExtraField {
         uncompressed_size,
@@ -109,11 +120,20 @@ pub(crate) fn extra_field_from_bytes(
     data: &[u8],
     uncompressed_size: u32,
     compressed_size: u32,
+    relative_header_offset: Option<u32>,
+    disk_start_number: Option<u16>,
 ) -> ZipResult<ExtraField> {
     match header_id {
-        HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD => Ok(ExtraField::Zip64ExtendedInformation(
-            zip64_extended_information_field_from_bytes(header_id, data, uncompressed_size, compressed_size)?,
-        )),
+        HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD => {
+            Ok(ExtraField::Zip64ExtendedInformation(zip64_extended_information_field_from_bytes(
+                header_id,
+                data,
+                uncompressed_size,
+                compressed_size,
+                relative_header_offset,
+                disk_start_number,
+            )?))
+        }
         HeaderId::INFO_ZIP_UNICODE_COMMENT_EXTRA_FIELD => Ok(ExtraField::InfoZipUnicodeComment(
             info_zip_unicode_comment_extra_field_from_bytes(header_id, data_size, data)?,
         )),

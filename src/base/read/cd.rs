@@ -172,7 +172,13 @@ where
         // next record.
         let filename_basic = io::read_bytes(&mut self.reader, header.file_name_length.into()).await?;
         let extra_field = io::read_bytes(&mut self.reader, header.extra_field_length.into()).await?;
-        let extra_fields = parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size)?;
+        let extra_fields = parse_extra_fields(
+            extra_field,
+            header.uncompressed_size,
+            header.compressed_size,
+            Some(header.lh_offset),
+            Some(header.disk_start),
+        )?;
         let zip64_extra_field = get_zip64_extra_field(&extra_fields);
 
         // Reconcile the compressed size, uncompressed size, and file offset, using ZIP64 if necessary.
