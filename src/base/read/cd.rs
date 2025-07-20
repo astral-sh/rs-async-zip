@@ -136,6 +136,12 @@ where
                     // Read the ZIP64 EOCDR.
                     let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut self.reader).await?;
 
+                    // Skip the extensible data field.
+                    if zip64_eocdr.size_of_zip64_end_of_cd_record > 44 {
+                        let extensible_data_size = zip64_eocdr.size_of_zip64_end_of_cd_record - 44;
+                        io::skip_bytes(&mut self.reader, extensible_data_size).await?;
+                    }
+
                     // Read the ZIP64 EOCDR locator.
                     let Some(zip64_eocdl) =
                         Zip64EndOfCentralDirectoryLocator::try_from_reader(&mut self.reader).await?

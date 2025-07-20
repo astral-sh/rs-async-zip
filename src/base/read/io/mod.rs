@@ -11,6 +11,7 @@ pub(crate) mod owned;
 pub use combined_record::CombinedCentralDirectoryRecord;
 
 use crate::string::{StringEncoding, ZipString};
+use futures_lite::io;
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 /// Read and return a dynamic length string from a reader which impls AsyncRead.
@@ -30,6 +31,17 @@ where
     reader.take(length as u64).read_to_end(&mut buffer).await?;
 
     Ok(buffer)
+}
+
+/// Skip a specified number of bytes in an AsyncRead implementer.
+pub(crate) async fn skip_bytes<R>(reader: R, length: u64) -> std::io::Result<()>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut sink = io::sink();
+    io::copy(&mut reader.take(length), &mut sink).await?;
+
+    Ok(())
 }
 
 /// A macro that returns the inner value of an Ok or early-returns in the case of an Err.
