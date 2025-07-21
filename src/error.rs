@@ -51,8 +51,8 @@ pub enum ZipError {
 
     #[error("unable to locate the end of central directory record")]
     UnableToLocateEOCDR,
-    #[error("extra field size was indicated to be {0} but only {1} bytes remain")]
-    InvalidExtraFieldHeader(u16, usize),
+    #[error("extra field size was indicated to be {0} but fewer than {0} bytes remain")]
+    InvalidExtraFieldHeader(u16),
     #[error("zip64 extended information field was incomplete")]
     Zip64ExtendedFieldIncomplete,
     #[error("an extra field with id {0:#x} was duplicated in the header")]

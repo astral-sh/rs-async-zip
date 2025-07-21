@@ -278,7 +278,7 @@ pub fn parse_extra_fields(
         let header_id: HeaderId = u16::from_le_bytes(data[cursor..cursor + 2].try_into().unwrap()).into();
         let field_size = u16::from_le_bytes(data[cursor + 2..cursor + 4].try_into().unwrap());
         if cursor + 4 + field_size as usize > data.len() {
-            return Err(ZipError::InvalidExtraFieldHeader(field_size, data.len() - cursor - 4 - field_size as usize));
+            return Err(ZipError::InvalidExtraFieldHeader(field_size));
         }
 
         // Decode the extra field data.
