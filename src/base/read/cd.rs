@@ -15,7 +15,14 @@ use crate::ZipString;
 /// An entry returned by the [`CentralDirectoryReader`].
 pub enum Entry {
     CentralDirectoryEntry(CentralDirectoryEntry),
-    EndOfCentralDirectoryRecord(CombinedCentralDirectoryRecord, ZipString),
+    EndOfCentralDirectoryRecord {
+        /// The combined end-of-central-directory record, which may include ZIP64 information.
+        record: CombinedCentralDirectoryRecord,
+        /// The comment associated with the end-of-central-directory record.
+        comment: ZipString,
+        /// Whether the end-of-central-directory record contains extensible data.
+        extensible: bool,
+    },
 }
 
 /// An entry in the ZIP file's central directory.
@@ -127,20 +134,24 @@ where
                         ));
                     }
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord(
-                        CombinedCentralDirectoryRecord::from(&eocdr),
+                    return Ok(Entry::EndOfCentralDirectoryRecord {
+                        record: CombinedCentralDirectoryRecord::from(&eocdr),
                         comment,
-                    ));
+                        extensible: false,
+                    });
                 }
                 ZIP64_EOCDR_SIGNATURE => {
                     // Read the ZIP64 EOCDR.
                     let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut self.reader).await?;
 
                     // Skip the extensible data field.
-                    if zip64_eocdr.size_of_zip64_end_of_cd_record > 44 {
+                    let extensible = if zip64_eocdr.size_of_zip64_end_of_cd_record > 44 {
                         let extensible_data_size = zip64_eocdr.size_of_zip64_end_of_cd_record - 44;
                         io::skip_bytes(&mut self.reader, extensible_data_size).await?;
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
                     // Read the ZIP64 EOCDR locator.
                     let Some(zip64_eocdl) =
@@ -186,7 +197,7 @@ where
                         ));
                     }
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord(combined, comment));
+                    return Ok(Entry::EndOfCentralDirectoryRecord { record: combined, comment, extensible });
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),
             }
