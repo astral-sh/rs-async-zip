@@ -13,14 +13,14 @@ use super::consts::NON_ZIP64_MAX_SIZE;
 fn zip64_extended_information_field_from_bytes(
     _header_id: HeaderId,
     data: &[u8],
-    uncompressed_size: u32,
-    compressed_size: u32,
-    relative_header_offset: Option<u32>,
-    disk_start_number: Option<u16>,
+    header_uncompressed_size: u32,
+    header_compressed_size: u32,
+    header_relative_header_offset: Option<u32>,
+    header_disk_start_number: Option<u16>,
 ) -> ZipResult<Zip64ExtendedInformationExtraField> {
     // slice.take is nightly-only so we'll just use an index to track the current position
     let mut current_idx = 0;
-    let uncompressed_size = if uncompressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
+    let uncompressed_size = if header_uncompressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
         let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
         current_idx += 8;
         val
@@ -28,7 +28,7 @@ fn zip64_extended_information_field_from_bytes(
         None
     };
 
-    let compressed_size = if compressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
+    let compressed_size = if header_compressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
         let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
         current_idx += 8;
         val
@@ -36,17 +36,17 @@ fn zip64_extended_information_field_from_bytes(
         None
     };
 
-    let relative_header_offset = if relative_header_offset == Some(NON_ZIP64_MAX_SIZE) && data.len() >= current_idx + 8
-    {
-        let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
-        current_idx += 8;
-        val
-    } else {
-        None
-    };
+    let relative_header_offset =
+        if header_relative_header_offset == Some(NON_ZIP64_MAX_SIZE) && data.len() >= current_idx + 8 {
+            let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
+            current_idx += 8;
+            val
+        } else {
+            None
+        };
 
     #[allow(unused_assignments)]
-    let disk_start_number = if disk_start_number == Some(0xFFFF) && data.len() >= current_idx + 4 {
+    let disk_start_number = if header_disk_start_number == Some(0xFFFF) && data.len() >= current_idx + 4 {
         let val = Some(u32::from_le_bytes(data[current_idx..current_idx + 4].try_into().unwrap()));
         current_idx += 4;
         val
@@ -55,6 +55,26 @@ fn zip64_extended_information_field_from_bytes(
     };
 
     if current_idx != data.len() {
+        // In some cases, we've seen zips that include the zip64 extended information field with
+        // uncompressed and compressed sizes equal to the local header sizes. We accept these, even
+        // though they are not strictly compliant with the spec.
+        if current_idx == 0 && data.len() == 16 {
+            let uncompressed_size = u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap());
+            let compressed_size = u64::from_le_bytes(data[current_idx + 8..current_idx + 16].try_into().unwrap());
+            if uncompressed_size == header_uncompressed_size as u64
+                && compressed_size == header_compressed_size as u64
+                && header_relative_header_offset.is_none()
+                && header_disk_start_number.is_none()
+            {
+                return Ok(Zip64ExtendedInformationExtraField {
+                    uncompressed_size: Some(uncompressed_size),
+                    compressed_size: Some(compressed_size),
+                    relative_header_offset: None,
+                    disk_start_number: None,
+                });
+            }
+        }
+
         return Err(ZipError::Zip64ExtendedInformationFieldTooLong { expected: data.len(), actual: current_idx });
     }
 
