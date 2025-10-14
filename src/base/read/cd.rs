@@ -88,9 +88,9 @@ pub struct CentralDirectoryReader<R> {
     offset: u64,
 }
 
-impl<'a, R> CentralDirectoryReader<Counting<R>>
+impl<R> CentralDirectoryReader<Counting<R>>
 where
-    R: AsyncRead + Unpin + 'a,
+    R: AsyncRead + Unpin,
 {
     /// Constructs a new ZIP reader from a non-seekable source.
     pub fn new(reader: R, offset: u64) -> Self {
@@ -206,8 +206,8 @@ where
         // Read the record.
         let header = CentralDirectoryRecord::from_reader(&mut self.reader).await?;
 
-        // Read the file name and extra field, which also ensures that we advance the reader to the
-        // next record.
+        // Read the file name, extra field, and comment, which also ensures that we advance the
+        // reader to the next record.
         let filename_basic = io::read_bytes(&mut self.reader, header.file_name_length.into()).await?;
         let extra_field = io::read_bytes(&mut self.reader, header.extra_field_length.into()).await?;
         let extra_fields = parse_extra_fields(
@@ -218,6 +218,9 @@ where
             Some(header.disk_start),
         )?;
         let zip64_extra_field = get_zip64_extra_field(&extra_fields);
+
+        // We read the comment but drop it, since we don't need it for anything.
+        io::skip_bytes(&mut self.reader, header.file_comment_length.into()).await?;
 
         // Reconcile the compressed size, uncompressed size, and file offset, using ZIP64 if necessary.
         let compressed_size = if let Some(compressed_size) = zip64_extra_field
