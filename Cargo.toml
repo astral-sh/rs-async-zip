@@ -1,5 +1,5 @@
 [package]
-name = "async_zip"
+name = "astral_async_zip"
 version = "0.0.17"
 edition = "2021"
 authors = ["Harry [hello@majored.pw]"]
@@ -11,6 +11,9 @@ documentation = "https://docs.rs/async_zip/"
 homepage = "https://github.com/Majored/rs-async-zip"
 keywords = ["async", "zip", "archive", "tokio"]
 categories = ["asynchronous", "compression"]
+
+[lib]
+name = "async_zip"
 
 [features]
 full = ["tokio-fs", "deflate", "bzip2", "lzma", "zstd", "xz", "deflate64"]
