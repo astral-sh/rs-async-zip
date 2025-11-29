@@ -203,7 +203,8 @@ where
 
     /// Reads until EOF and converts the reader back into the Ready state.
     pub async fn skip(mut self) -> Result<Next<R>> {
-        while self.0 .0.read(&mut [0; 2048]).await? != 0 {}
+        let mut buf = [0u8; 8192];
+        while self.0 .0.read(&mut buf).await? != 0 {}
         let mut inner = self.0 .0.into_inner();
 
         let data_descriptor = match self.0 .1 {
