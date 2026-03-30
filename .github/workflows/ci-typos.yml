@@ -2,23 +2,28 @@ name: typos (Linux)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions: {}
+
 jobs:
   build:
+    permissions: {}
 
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
-    - name: Install typos
-      run: cargo install typos-cli
+      - name: Install typos
+        run: cargo install typos-cli
 
-    - name: Run typos
-      run: typos --format brief
+      - name: Run typos
+        run: typos --format brief

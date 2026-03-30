@@ -2,15 +2,18 @@ name: Build (WASM)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions: {}
+
 jobs:
   build:
+    permissions: {}
     name: Build ['full-wasm' feature] on ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
@@ -19,6 +22,8 @@ jobs:
           - wasm32-wasi
           - wasm32-unknown-unknown
     steps:
-    - uses: actions/checkout@v4
-    - run: rustup target add ${{ matrix.target }}
-    - run: cargo build --verbose --target ${{ matrix.target }} --features full-wasm
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --verbose --target ${{ matrix.target }} --features full-wasm
