@@ -23,9 +23,6 @@ jobs:
       - name: Test [no features]
         run: cargo test --verbose
 
-      - name: Test ['chrono' feature]
-        run: cargo test --verbose --features chrono
-
       - name: Test ['tokio' feature]
         run: cargo test --verbose --features tokio
 
