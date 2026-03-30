@@ -25,7 +25,6 @@
 //! ### Feature Flags
 //! - `full` - Enables all below features.
 //! - `full-wasm` - Enables all below features that are compatible with WASM.
-//! - `chrono` - Enables support for parsing dates via `chrono`.
 //! - `tokio` - Enables support for the `tokio` implementation module.
 //! - `tokio-fs` - Enables support for the `tokio::fs` reading module.
 //! - `deflate` - Enables support for the Deflate compression method.
