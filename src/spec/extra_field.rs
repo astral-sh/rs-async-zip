@@ -59,12 +59,9 @@ fn zip64_extended_information_field_from_bytes(
         // uncompressed and compressed sizes equal to the local header sizes. We accept these, even
         // though they are not strictly compliant with the spec.
         if current_idx == 0 && data.len() == 16 {
-            let uncompressed_size = u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap());
-            let compressed_size = u64::from_le_bytes(data[current_idx + 8..current_idx + 16].try_into().unwrap());
-            if uncompressed_size == header_uncompressed_size as u64
-                && compressed_size == header_compressed_size as u64
-                && header_relative_header_offset.is_none()
-                && header_disk_start_number.is_none()
+            let uncompressed_size = u64::from_le_bytes(data[0..8].try_into().unwrap());
+            let compressed_size = u64::from_le_bytes(data[8..16].try_into().unwrap());
+            if uncompressed_size == header_uncompressed_size as u64 && compressed_size == header_compressed_size as u64
             {
                 return Ok(Zip64ExtendedInformationExtraField {
                     uncompressed_size: Some(uncompressed_size),
@@ -157,5 +154,57 @@ pub(crate) fn extra_field_from_bytes(
             info_zip_unicode_path_extra_field_from_bytes(header_id, data_size, data)?,
         )),
         _ => Ok(ExtraField::Unknown(UnknownExtraField { header_id, data_size, content: data.to_vec() })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zip64_extra_field_cd_with_redundant_sizes_accepted() {
+        // Simulate a central directory entry produced by conda-build / Python's zipfile module:
+        // a zip64 extra field is present even though the sizes fit in 32 bits (no sentinel).
+        // For central directory entries, header_relative_header_offset and
+        // header_disk_start_number are always Some(_), not None.
+        let data: [u8; 16] = [
+            30, 0, 0, 0, 0, 0, 0, 0, // uncompressed_size = 30u64 LE
+            30, 0, 0, 0, 0, 0, 0, 0, // compressed_size   = 30u64 LE
+        ];
+        let result = zip64_extended_information_field_from_bytes(
+            HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD,
+            &data,
+            30,      // header_uncompressed_size (not sentinel 0xFFFFFFFF)
+            30,      // header_compressed_size   (not sentinel 0xFFFFFFFF)
+            Some(0), // header_relative_header_offset (central directory always provides this)
+            Some(0), // header_disk_start_number      (central directory always provides this)
+        );
+        assert!(result.is_ok(), "expected Ok but got: {:?}", result.err());
+        let field = result.unwrap();
+        assert_eq!(field.uncompressed_size, Some(30));
+        assert_eq!(field.compressed_size, Some(30));
+        assert_eq!(field.relative_header_offset, None);
+        assert_eq!(field.disk_start_number, None);
+    }
+
+    #[test]
+    fn zip64_extra_field_local_header_with_redundant_sizes_still_accepted() {
+        // Existing behaviour for local file headers (both Option params are None) must be preserved.
+        let data: [u8; 16] = [
+            5, 0, 0, 0, 0, 0, 0, 0, // uncompressed = 5
+            5, 0, 0, 0, 0, 0, 0, 0, // compressed   = 5
+        ];
+        let result = zip64_extended_information_field_from_bytes(
+            HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD,
+            &data,
+            5,
+            5,
+            None,
+            None,
+        );
+        assert!(result.is_ok(), "expected Ok but got: {:?}", result.err());
+        let field = result.unwrap();
+        assert_eq!(field.uncompressed_size, Some(5));
+        assert_eq!(field.compressed_size, Some(5));
     }
 }
