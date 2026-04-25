@@ -53,6 +53,48 @@ async fn test_read_zip64_archive_stream() {
     assert_eq!(read_data, ZIP64_ZIP_CONTENTS);
 }
 
+#[tokio::test]
+async fn test_zip64_entry_count_must_fit_before_zip64_eocdr() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+    use crate::spec::consts::{EOCDR_SIGNATURE, ZIP64_EOCDL_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
+    use crate::spec::header::Zip64EndOfCentralDirectoryRecord;
+
+    let mut data = Vec::new();
+    data.extend_from_slice(&ZIP64_EOCDR_SIGNATURE.to_le_bytes());
+    data.extend_from_slice(
+        &Zip64EndOfCentralDirectoryRecord {
+            size_of_zip64_end_of_cd_record: 44,
+            version_made_by: 45,
+            version_needed_to_extract: 45,
+            disk_number: 0,
+            disk_number_start_of_cd: 0,
+            num_entries_in_directory_on_disk: u64::MAX,
+            num_entries_in_directory: u64::MAX,
+            directory_size: 0,
+            offset_of_start_of_directory: 0,
+        }
+        .as_bytes(),
+    );
+    data.extend_from_slice(&ZIP64_EOCDL_SIGNATURE.to_le_bytes());
+    data.extend_from_slice(&0_u32.to_le_bytes());
+    data.extend_from_slice(&0_u64.to_le_bytes());
+    data.extend_from_slice(&1_u32.to_le_bytes());
+    data.extend_from_slice(&EOCDR_SIGNATURE.to_le_bytes());
+    data.extend_from_slice(&0_u16.to_le_bytes());
+    data.extend_from_slice(&0_u16.to_le_bytes());
+    data.extend_from_slice(&u16::MAX.to_le_bytes());
+    data.extend_from_slice(&u16::MAX.to_le_bytes());
+    data.extend_from_slice(&u32::MAX.to_le_bytes());
+    data.extend_from_slice(&u32::MAX.to_le_bytes());
+    data.extend_from_slice(&0_u16.to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected invalid central directory entry count");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: u64::MAX }));
+}
+
 /// Generate an example file only if it doesn't exist already.
 /// The file is placed adjacent to this rs file.
 #[cfg(feature = "tokio")]

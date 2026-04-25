@@ -22,7 +22,7 @@ use crate::entry::{StoredZipEntry, ZipEntry};
 use crate::error::{Result, ZipError};
 use crate::file::ZipFile;
 use crate::spec::attribute::AttributeCompatibility;
-use crate::spec::consts::LFH_LENGTH;
+use crate::spec::consts::{CDH_LENGTH, LFH_LENGTH};
 use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH, ZIP64_EOCDL_LENGTH};
 use crate::spec::header::InfoZipUnicodeCommentExtraField;
 use crate::spec::header::InfoZipUnicodePathExtraField;
@@ -40,6 +40,7 @@ use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufRead
 
 /// The max buffer size used when parsing the central directory, equal to 20MiB.
 const MAX_CD_BUFFER_SIZE: usize = 20 * 1024 * 1024;
+const MIN_CENTRAL_DIRECTORY_ENTRY_SIZE: u64 = (SIGNATURE_LENGTH + CDH_LENGTH) as u64;
 
 pub(crate) async fn file<R>(mut reader: R) -> Result<ZipFile>
 where
@@ -65,6 +66,7 @@ where
                 Some(locator) => {
                     reader.seek(SeekFrom::Start(locator.relative_offset + SIGNATURE_LENGTH as u64)).await?;
                     let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut reader).await?;
+                    validate_zip64_entry_count(&zip64_eocdr, locator.relative_offset)?;
                     (CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr), true)
                 }
                 None => (CombinedCentralDirectoryRecord::from(&eocdr), false),
@@ -86,17 +88,47 @@ where
     // Because `eocdr.offset_of_start_of_directory` is a u64, we use MAX_CD_BUFFER_SIZE to prevent very large buffer sizes.
     let buf =
         BufReader::with_capacity(std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE), reader);
-    let entries = crate::base::read::cd(buf, eocdr.num_entries_in_directory, zip64).await?;
+    let entries =
+        crate::base::read::cd(buf, eocdr.num_entries_in_directory, eocdr.offset_of_start_of_directory, zip64).await?;
 
     Ok(ZipFile { entries, comment, zip64 })
 }
 
-pub(crate) async fn cd<R>(mut reader: R, num_of_entries: u64, zip64: bool) -> Result<Vec<StoredZipEntry>>
+fn validate_zip64_entry_count(zip64_eocdr: &Zip64EndOfCentralDirectoryRecord, zip64_eocdr_offset: u64) -> Result<()> {
+    let minimum_central_directory_end = zip64_eocdr
+        .num_entries_in_directory
+        .saturating_mul(MIN_CENTRAL_DIRECTORY_ENTRY_SIZE)
+        .saturating_add(zip64_eocdr.offset_of_start_of_directory);
+
+    if zip64_eocdr_offset < minimum_central_directory_end {
+        return Err(ZipError::InvalidCentralDirectoryEntryCount { entries: zip64_eocdr.num_entries_in_directory });
+    }
+
+    Ok(())
+}
+
+fn cd_entry_capacity(num_of_entries: usize, directory_start: u64) -> Result<usize> {
+    let directory_start = usize::try_from(directory_start).unwrap_or(usize::MAX);
+    let capacity = if num_of_entries > directory_start { 0 } else { num_of_entries };
+
+    if capacity.saturating_mul(std::mem::size_of::<StoredZipEntry>()) > isize::MAX as usize {
+        return Err(ZipError::FeatureNotSupported("Oversized central directory"));
+    }
+
+    Ok(capacity)
+}
+
+pub(crate) async fn cd<R>(
+    mut reader: R,
+    num_of_entries: u64,
+    directory_start: u64,
+    zip64: bool,
+) -> Result<Vec<StoredZipEntry>>
 where
     R: AsyncRead + Unpin,
 {
-    let num_of_entries = num_of_entries.try_into().map_err(|_| ZipError::TargetZip64NotSupported)?;
-    let mut entries = Vec::with_capacity(num_of_entries);
+    let num_of_entries: usize = num_of_entries.try_into().map_err(|_| ZipError::TargetZip64NotSupported)?;
+    let mut entries = Vec::with_capacity(cd_entry_capacity(num_of_entries, directory_start)?);
 
     for _ in 0..num_of_entries {
         let entry = cd_record(&mut reader, zip64).await?;
