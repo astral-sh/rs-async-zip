@@ -153,6 +153,28 @@ impl ExtraFieldAsBytes for InfoZipUnicodePathExtraField {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zip64_disk_start_number_size_matches_serialized_bytes() {
+        let field = Zip64ExtendedInformationExtraField {
+            uncompressed_size: None,
+            compressed_size: None,
+            relative_header_offset: None,
+            disk_start_number: Some(0x0102_0304),
+        };
+
+        let bytes = field.as_bytes();
+
+        assert_eq!(field.count_bytes(), bytes.len());
+        assert_eq!(bytes.len(), 8);
+        assert_eq!(u16::from_le_bytes(bytes[2..4].try_into().unwrap()), 4);
+        assert_eq!(&bytes[4..], &0x0102_0304u32.to_le_bytes());
+    }
+}
+
 /// Parse a zip64 extra field from bytes.
 /// The content of "data" should exclude the header.
 fn zip64_extended_information_field_from_bytes(

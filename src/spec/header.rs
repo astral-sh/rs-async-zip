@@ -86,7 +86,7 @@ impl Zip64ExtendedInformationExtraField {
         self.uncompressed_size.map(|_| 8).unwrap_or_default()
             + self.compressed_size.map(|_| 8).unwrap_or_default()
             + self.relative_header_offset.map(|_| 8).unwrap_or_default()
-            + self.disk_start_number.map(|_| 8).unwrap_or_default()
+            + self.disk_start_number.map(|_| 4).unwrap_or_default()
     }
 }
 
