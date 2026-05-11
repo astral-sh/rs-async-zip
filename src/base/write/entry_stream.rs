@@ -51,6 +51,10 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
         writer: &'b mut ZipFileWriter<W>,
         mut entry: ZipEntry,
     ) -> Result<EntryStreamWriter<'b, W>> {
+        if writer.force_no_zip64 && writer.cd_entries.len() >= NON_ZIP64_MAX_NUM_FILES as usize {
+            return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
+        }
+
         let lfh_offset = writer.writer.offset();
         let lfh = EntryStreamWriter::write_lfh(writer, &mut entry).await?;
         let data_offset = writer.writer.offset();
@@ -240,11 +244,8 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
         };
 
         self.cd_entries.push(CentralDirectoryEntry { header: cdh, entry: self.entry });
-        // Ensure that we can fit this many files in this archive if forcing no zip64
+        // Mark the archive as Zip64 once the central directory no longer fits in the legacy count field.
         if self.cd_entries.len() > NON_ZIP64_MAX_NUM_FILES as usize {
-            if self.force_no_zip64 {
-                return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
-            }
             if !*self.is_zip64 {
                 *self.is_zip64 = true;
             }

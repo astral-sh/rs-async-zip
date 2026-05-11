@@ -226,6 +226,7 @@ async fn test_force_no_zip64_errors_with_too_many_files_whole() {
     let result = writer.write_entry_whole(entry, &[]).await;
 
     assert!(matches!(result, Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles))));
+    assert_eq!(writer.cd_entries.len(), u16::MAX as usize);
 }
 
 /// Tests that when force_no_zip64 is true, EntryStreamWriter errors when trying to write more than
@@ -240,10 +241,10 @@ async fn test_force_no_zip64_errors_with_too_many_files_stream() {
         entrywriter.close().await.unwrap();
     }
     let entry = ZipEntryBuilder::new("65537".to_string().into(), Compression::Stored);
-    let entrywriter = writer.write_entry_stream(entry).await.unwrap();
-    let result = entrywriter.close().await;
+    let result = writer.write_entry_stream(entry).await;
 
     assert!(matches!(result, Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles))));
+    assert_eq!(writer.cd_entries.len(), u16::MAX as usize);
 }
 
 /// Tests that when force_no_zip64 is true, EntryStreamWriter errors when trying to write
