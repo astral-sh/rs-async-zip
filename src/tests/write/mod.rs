@@ -6,6 +6,9 @@ use std::io::Error;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use crate::base::write::ZipFileWriter;
+use crate::error::ZipError;
+
 pub(crate) mod offset;
 mod zip64;
 
@@ -26,4 +29,16 @@ impl AsyncWrite for AsyncSink {
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Error>> {
         Poll::Ready(Ok(()))
     }
+}
+
+#[tokio::test]
+async fn reject_large_archive_comment() {
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    writer.comment("x".repeat(u16::MAX as usize + 1));
+
+    let result = writer.close().await;
+
+    assert!(matches!(result, Err(ZipError::CommentTooLarge)));
+    assert!(buffer.is_empty());
 }

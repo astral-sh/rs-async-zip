@@ -154,6 +154,13 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
     ///
     /// Failure to call this function before going out of scope would result in a corrupted ZIP file.
     pub async fn close(mut self) -> Result<W> {
+        let file_comment_length = self
+            .comment_opt
+            .as_ref()
+            .map(|comment| comment.len().try_into())
+            .transpose()
+            .map_err(|_| crate::error::ZipError::CommentTooLarge)?
+            .unwrap_or_default();
         let cd_offset = self.writer.offset();
 
         for entry in &self.cd_entries {
@@ -225,7 +232,7 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
             num_of_entries: num_entries_in_directory_u16,
             size_cent_dir: central_directory_size_u32,
             cent_dir_offset: cd_offset_u32,
-            file_comm_length: self.comment_opt.as_ref().map(|v| v.len() as u16).unwrap_or_default(),
+            file_comm_length: file_comment_length,
         };
 
         self.writer.write_all(&crate::spec::consts::EOCDR_SIGNATURE.to_le_bytes()).await?;
