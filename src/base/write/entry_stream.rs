@@ -9,6 +9,7 @@ use crate::base::write::CentralDirectoryEntry;
 use crate::base::write::ZipFileWriter;
 use crate::entry::ZipEntry;
 use crate::error::{Result, Zip64ErrorCase, ZipError};
+use crate::spec::data_descriptor::{DataDescriptor, Zip64DataDescriptor};
 use crate::spec::extra_field::ExtraFieldAsBytes;
 use crate::spec::header::InfoZipUnicodeCommentExtraField;
 use crate::spec::header::InfoZipUnicodePathExtraField;
@@ -208,9 +209,14 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
         };
 
         inner_writer.write_all(&crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE.to_le_bytes()).await?;
-        inner_writer.write_all(&crc.to_le_bytes()).await?;
-        inner_writer.write_all(&cdr_compressed_size.to_le_bytes()).await?;
-        inner_writer.write_all(&cdr_uncompressed_size.to_le_bytes()).await?;
+        if self.force_no_zip64 {
+            let descriptor =
+                DataDescriptor { crc, compressed_size: cdr_compressed_size, uncompressed_size: cdr_uncompressed_size };
+            inner_writer.write_all(&descriptor.as_bytes()).await?;
+        } else {
+            let descriptor = Zip64DataDescriptor { crc, compressed_size, uncompressed_size };
+            inner_writer.write_all(&descriptor.as_bytes()).await?;
+        }
 
         let comment_basic = self.entry.comment().alternative().unwrap_or_else(|| self.entry.comment().as_bytes());
 

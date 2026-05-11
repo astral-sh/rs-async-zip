@@ -2,7 +2,7 @@
 
 use crate::base::write::ZipFileWriter;
 use crate::error::{Zip64ErrorCase, ZipError};
-use crate::spec::consts::NON_ZIP64_MAX_SIZE;
+use crate::spec::consts::{CDH_SIGNATURE, DATA_DESCRIPTOR_SIGNATURE, NON_ZIP64_MAX_SIZE};
 use crate::tests::init_logger;
 use crate::tests::write::AsyncSink;
 use crate::{Compression, ZipEntryBuilder};
@@ -46,6 +46,29 @@ async fn test_write_zip64_file() {
     let mut buffer = Vec::new();
     file2.read_to_end(&mut buffer).unwrap();
     assert_eq!(buffer.as_slice(), &[0, 0, 0, 0]);
+}
+
+/// Test that streaming ZIP64 entries write ZIP64-width data descriptor sizes.
+#[tokio::test]
+async fn test_write_stream_zip64_data_descriptor_sizes() {
+    let data = b"data";
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored);
+    let mut entry_writer = writer.write_entry_stream(entry).await.unwrap();
+    entry_writer.write_all(data).await.unwrap();
+    entry_writer.close().await.unwrap();
+    writer.close().await.unwrap();
+
+    let signature = DATA_DESCRIPTOR_SIGNATURE.to_le_bytes();
+    let descriptor_offset = buffer.windows(signature.len()).position(|window| window == signature).unwrap();
+
+    let compressed_size = u64::from_le_bytes(buffer[descriptor_offset + 8..descriptor_offset + 16].try_into().unwrap());
+    let uncompressed_size =
+        u64::from_le_bytes(buffer[descriptor_offset + 16..descriptor_offset + 24].try_into().unwrap());
+    assert_eq!(compressed_size, data.len() as u64);
+    assert_eq!(uncompressed_size, data.len() as u64);
+    assert_eq!(&buffer[descriptor_offset + 24..descriptor_offset + 28], &CDH_SIGNATURE.to_le_bytes(),);
 }
 
 /// Test writing a large zip64 file. This test will use upwards of 4GB of memory.
