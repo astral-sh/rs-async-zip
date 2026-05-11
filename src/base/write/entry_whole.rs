@@ -197,10 +197,8 @@ impl<'b, 'c, W: AsyncWrite + Unpin> EntryWholeWriter<'b, 'c, W> {
 
         self.writer.cd_entries.push(CentralDirectoryEntry { header, entry: self.entry });
         // Mark the archive as Zip64 once the central directory no longer fits in the legacy count field.
-        if self.writer.cd_entries.len() > NON_ZIP64_MAX_NUM_FILES as usize {
-            if !self.writer.is_zip64 {
-                self.writer.is_zip64 = true;
-            }
+        if self.writer.cd_entries.len() > NON_ZIP64_MAX_NUM_FILES as usize && !self.writer.is_zip64 {
+            self.writer.is_zip64 = true;
         }
         Ok(())
     }

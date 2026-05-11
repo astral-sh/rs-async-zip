@@ -245,10 +245,8 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
 
         self.cd_entries.push(CentralDirectoryEntry { header: cdh, entry: self.entry });
         // Mark the archive as Zip64 once the central directory no longer fits in the legacy count field.
-        if self.cd_entries.len() > NON_ZIP64_MAX_NUM_FILES as usize {
-            if !*self.is_zip64 {
-                *self.is_zip64 = true;
-            }
+        if self.cd_entries.len() > NON_ZIP64_MAX_NUM_FILES as usize && !*self.is_zip64 {
+            *self.is_zip64 = true;
         }
 
         Ok(())

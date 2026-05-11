@@ -346,7 +346,7 @@ fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFiel
 fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
     let unicode_extra = extra_fields.iter().find_map(|field| match field {
         ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32, unicode }) => {
-            if unicode.len() > 0 && *crc32 == crc32fast::hash(&basic) {
+            if !unicode.is_empty() && *crc32 == crc32fast::hash(&basic) {
                 Some(std::string::String::from_utf8(unicode.clone()))
             } else {
                 None
