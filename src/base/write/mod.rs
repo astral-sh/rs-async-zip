@@ -176,11 +176,8 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
         }
 
         let central_directory_size = self.writer.offset() - cd_offset;
-        let central_directory_size_u32 = if central_directory_size > NON_ZIP64_MAX_SIZE as u64 {
-            NON_ZIP64_MAX_SIZE
-        } else {
-            central_directory_size as u32
-        };
+        let central_directory_size_u32 =
+            central_directory_size_field(central_directory_size, self.force_no_zip64, &mut self.is_zip64)?;
         let num_entries_in_directory = self.cd_entries.len() as u64;
         let num_entries_in_directory_u16 = if num_entries_in_directory > NON_ZIP64_MAX_NUM_FILES as u64 {
             NON_ZIP64_MAX_NUM_FILES
@@ -242,6 +239,22 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
         }
 
         Ok(self.writer.into_inner())
+    }
+}
+
+pub(crate) fn central_directory_size_field(
+    central_directory_size: u64,
+    force_no_zip64: bool,
+    is_zip64: &mut bool,
+) -> Result<u32> {
+    if central_directory_size > NON_ZIP64_MAX_SIZE as u64 {
+        if force_no_zip64 {
+            return Err(crate::error::ZipError::Zip64Needed(crate::error::Zip64ErrorCase::LargeFile));
+        }
+        *is_zip64 = true;
+        Ok(NON_ZIP64_MAX_SIZE)
+    } else {
+        Ok(central_directory_size as u32)
     }
 }
 
