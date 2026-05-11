@@ -3,6 +3,8 @@
 
 pub(crate) mod combined;
 pub(crate) mod read;
+pub(crate) mod spec;
+pub(crate) mod write;
 
 use std::sync::Once;
 static ENV_LOGGER: Once = Once::new();
