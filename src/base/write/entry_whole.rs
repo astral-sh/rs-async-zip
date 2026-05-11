@@ -41,17 +41,12 @@ impl<'b, 'c, W: AsyncWrite + Unpin> EntryWholeWriter<'b, 'c, W> {
         let mut _compressed_data: Option<Vec<u8>> = None;
         let compressed_data = match self.entry.compression() {
             Compression::Stored => self.data,
-            #[cfg(any(
-                feature = "deflate",
-                feature = "bzip2",
-                feature = "zstd",
-                feature = "lzma",
-                feature = "xz",
-                feature = "deflate64"
-            ))]
+            #[cfg(feature = "deflate64")]
+            Compression::Deflate64 => return Err(ZipError::FeatureNotSupported("Deflate64 writing")),
+            #[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
             _ => {
                 _compressed_data =
-                    Some(compress(self.entry.compression(), self.data, self.entry.compression_level).await);
+                    Some(compress(self.entry.compression(), self.data, self.entry.compression_level).await?);
                 _compressed_data.as_ref().unwrap()
             }
         };
@@ -204,18 +199,11 @@ impl<'b, 'c, W: AsyncWrite + Unpin> EntryWholeWriter<'b, 'c, W> {
     }
 }
 
-#[cfg(any(
-    feature = "deflate",
-    feature = "bzip2",
-    feature = "zstd",
-    feature = "lzma",
-    feature = "xz",
-    feature = "deflate64"
-))]
-async fn compress(compression: Compression, data: &[u8], level: async_compression::Level) -> Vec<u8> {
+#[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
+async fn compress(compression: Compression, data: &[u8], level: async_compression::Level) -> Result<Vec<u8>> {
     // TODO: Reduce reallocations of Vec by making a lower-bound estimate of the length reduction and
     // pre-initialising the Vec to that length. Then truncate() to the actual number of bytes written.
-    match compression {
+    Ok(match compression {
         #[cfg(feature = "deflate")]
         Compression::Deflate => {
             let mut writer = write::DeflateEncoder::with_quality(Cursor::new(Vec::new()), level);
@@ -223,8 +211,6 @@ async fn compress(compression: Compression, data: &[u8], level: async_compressio
             writer.close().await.unwrap();
             writer.into_inner().into_inner()
         }
-        #[cfg(feature = "deflate64")]
-        Compression::Deflate64 => panic!("compressing deflate64 is not supported"),
         #[cfg(feature = "bzip2")]
         Compression::Bz => {
             let mut writer = write::BzEncoder::with_quality(Cursor::new(Vec::new()), level);
@@ -254,5 +240,5 @@ async fn compress(compression: Compression, data: &[u8], level: async_compressio
             writer.into_inner().into_inner()
         }
         _ => unreachable!(),
-    }
+    })
 }

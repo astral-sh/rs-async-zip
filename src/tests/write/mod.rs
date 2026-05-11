@@ -9,6 +9,8 @@ use std::task::{Context, Poll};
 use crate::base::write::{central_directory_size_field, ZipFileWriter};
 use crate::error::{Zip64ErrorCase, ZipError};
 use crate::spec::consts::NON_ZIP64_MAX_SIZE;
+#[cfg(feature = "deflate64")]
+use crate::{Compression, ZipEntryBuilder};
 
 pub(crate) mod offset;
 mod zip64;
@@ -41,6 +43,32 @@ async fn reject_large_archive_comment() {
     let result = writer.close().await;
 
     assert!(matches!(result, Err(ZipError::CommentTooLarge)));
+    assert!(buffer.is_empty());
+}
+
+#[cfg(feature = "deflate64")]
+#[tokio::test]
+async fn reject_deflate64_whole_writes() {
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Deflate64);
+
+    let result = writer.write_entry_whole(entry, b"data").await;
+
+    assert!(matches!(result, Err(ZipError::FeatureNotSupported("Deflate64 writing"))));
+    assert!(buffer.is_empty());
+}
+
+#[cfg(feature = "deflate64")]
+#[tokio::test]
+async fn reject_deflate64_stream_writes() {
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Deflate64);
+
+    let result = writer.write_entry_stream(entry).await;
+
+    assert!(matches!(result, Err(ZipError::FeatureNotSupported("Deflate64 writing"))));
     assert!(buffer.is_empty());
 }
 

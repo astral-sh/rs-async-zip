@@ -2,6 +2,9 @@
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
 use crate::base::write::io::offset::AsyncOffsetWriter;
+use crate::error::Result;
+#[cfg(feature = "deflate64")]
+use crate::error::ZipError;
 use crate::spec::Compression;
 
 use std::io::Error;
@@ -27,15 +30,15 @@ pub enum CompressedAsyncWriter<'b, W: AsyncWrite + Unpin> {
 }
 
 impl<'b, W: AsyncWrite + Unpin> CompressedAsyncWriter<'b, W> {
-    pub fn from_raw(writer: &'b mut AsyncOffsetWriter<W>, compression: Compression) -> Self {
-        match compression {
+    pub fn from_raw(writer: &'b mut AsyncOffsetWriter<W>, compression: Compression) -> Result<Self> {
+        Ok(match compression {
             Compression::Stored => CompressedAsyncWriter::Stored(ShutdownIgnoredWriter(writer)),
             #[cfg(feature = "deflate")]
             Compression::Deflate => {
                 CompressedAsyncWriter::Deflate(write::DeflateEncoder::new(ShutdownIgnoredWriter(writer)))
             }
             #[cfg(feature = "deflate64")]
-            Compression::Deflate64 => panic!("writing deflate64 is not supported"),
+            Compression::Deflate64 => return Err(ZipError::FeatureNotSupported("Deflate64 writing")),
             #[cfg(feature = "bzip2")]
             Compression::Bz => CompressedAsyncWriter::Bz(write::BzEncoder::new(ShutdownIgnoredWriter(writer))),
             #[cfg(feature = "lzma")]
@@ -44,7 +47,7 @@ impl<'b, W: AsyncWrite + Unpin> CompressedAsyncWriter<'b, W> {
             Compression::Zstd => CompressedAsyncWriter::Zstd(write::ZstdEncoder::new(ShutdownIgnoredWriter(writer))),
             #[cfg(feature = "xz")]
             Compression::Xz => CompressedAsyncWriter::Xz(write::XzEncoder::new(ShutdownIgnoredWriter(writer))),
-        }
+        })
     }
 
     pub fn into_inner(self) -> &'b mut AsyncOffsetWriter<W> {
