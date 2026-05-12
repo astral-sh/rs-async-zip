@@ -1,7 +1,7 @@
 // Copyright (c) 2022 Harry [Majored] [hello@majored.pw]
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 use jiff::{civil, tz::Offset, Timestamp};
 
 use crate::{ZipDateTime, ZipDateTimeBuilder};
@@ -19,13 +19,13 @@ fn default_date_is_valid_msdos_epoch() {
 }
 
 #[test]
-#[cfg(not(feature = "jiff-02"))]
+#[cfg(not(feature = "jiff"))]
 fn default_for_write_uses_msdos_epoch_without_jiff() {
     assert_eq!(ZipDateTime::default(), ZipDateTime::default_for_write());
 }
 
 #[test]
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 fn default_for_write_uses_current_time_with_jiff() {
     let default = ZipDateTime::default_for_write();
     let now = Offset::UTC.to_datetime(Timestamp::now());
@@ -35,7 +35,7 @@ fn default_for_write_uses_current_time_with_jiff() {
 }
 
 #[test]
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 fn date_conversion_test_jiff() {
     let original_date_time = civil::datetime(2022, 10, 23, 18, 15, 2, 0);
     let zip_date_time = ZipDateTime::from_jiff(&original_date_time);

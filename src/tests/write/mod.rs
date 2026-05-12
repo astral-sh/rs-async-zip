@@ -2,7 +2,7 @@
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
 use futures_lite::io::{AsyncWrite, AsyncWriteExt};
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 use jiff::{tz::Offset, Timestamp};
 use std::io::Error;
 use std::pin::Pin;
@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 use crate::base::write::{central_directory_size_field, ZipFileWriter};
 use crate::error::{Zip64ErrorCase, ZipError};
 use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE};
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 use crate::ZipDateTime;
 use crate::{Compression, ZipEntryBuilder};
 
@@ -37,7 +37,7 @@ impl AsyncWrite for AsyncSink {
     }
 }
 
-#[cfg(not(feature = "jiff-02"))]
+#[cfg(not(feature = "jiff"))]
 fn assert_default_modification_date(buffer: &[u8]) {
     let ((local_time, local_date), (central_time, central_date)) = modification_dates(buffer);
 
@@ -66,7 +66,7 @@ fn modification_dates(buffer: &[u8]) -> ((u16, u16), (u16, u16)) {
     ((local_time, local_date), (central_time, central_date))
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 fn assert_current_modification_date(buffer: &[u8]) {
     let ((local_time, local_date), (central_time, central_date)) = modification_dates(buffer);
     assert_eq!((local_time, local_date), (central_time, central_date));
@@ -78,7 +78,7 @@ fn assert_current_modification_date(buffer: &[u8]) {
     assert_ne!(ZipDateTime::default(), date);
 }
 
-#[cfg(not(feature = "jiff-02"))]
+#[cfg(not(feature = "jiff"))]
 #[tokio::test]
 async fn default_modification_date_is_valid_for_whole_writes() {
     let mut buffer = Vec::new();
@@ -91,7 +91,7 @@ async fn default_modification_date_is_valid_for_whole_writes() {
     assert_default_modification_date(&buffer);
 }
 
-#[cfg(not(feature = "jiff-02"))]
+#[cfg(not(feature = "jiff"))]
 #[tokio::test]
 async fn default_modification_date_is_valid_for_stream_writes() {
     let mut buffer = Vec::new();
@@ -106,7 +106,7 @@ async fn default_modification_date_is_valid_for_stream_writes() {
     assert_default_modification_date(&buffer);
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 #[tokio::test]
 async fn default_modification_date_uses_current_time_for_whole_writes() {
     let mut buffer = Vec::new();
@@ -119,7 +119,7 @@ async fn default_modification_date_uses_current_time_for_whole_writes() {
     assert_current_modification_date(&buffer);
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 #[tokio::test]
 async fn default_modification_date_uses_current_time_for_stream_writes() {
     let mut buffer = Vec::new();

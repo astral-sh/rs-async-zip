@@ -3,7 +3,7 @@
 
 pub mod builder;
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 use jiff::{civil, tz::Offset, Timestamp};
 
 use self::builder::ZipDateTimeBuilder;
@@ -25,14 +25,14 @@ impl Default for ZipDateTime {
 }
 
 impl ZipDateTime {
-    /// Returns the current time if the `jiff-02` feature is enabled, otherwise the default of 1980-01-01.
+    /// Returns the current time if the `jiff` feature is enabled, otherwise the default of 1980-01-01.
     pub fn default_for_write() -> Self {
-        #[cfg(feature = "jiff-02")]
+        #[cfg(feature = "jiff")]
         {
             Self::from_jiff(&Offset::UTC.to_datetime(Timestamp::now()))
         }
 
-        #[cfg(not(feature = "jiff-02"))]
+        #[cfg(not(feature = "jiff"))]
         {
             Self::default()
         }
@@ -72,16 +72,16 @@ impl ZipDateTime {
 
     /// Constructs Jiff's [`civil::DateTime`] representation of this date & time.
     ///
-    /// Note that this requires the `jiff-02` feature.
-    #[cfg(feature = "jiff-02")]
+    /// Note that this requires the `jiff` feature.
+    #[cfg(feature = "jiff")]
     pub fn as_jiff(&self) -> Result<civil::DateTime, jiff::Error> {
         self.try_into()
     }
 
     /// Constructs this date & time from Jiff's [`civil::DateTime`] representation.
     ///
-    /// Note that this requires the `jiff-02` feature.
-    #[cfg(feature = "jiff-02")]
+    /// Note that this requires the `jiff` feature.
+    #[cfg(feature = "jiff")]
     pub fn from_jiff(date_time: &civil::DateTime) -> Self {
         date_time.into()
     }
@@ -93,7 +93,7 @@ impl From<ZipDateTimeBuilder> for ZipDateTime {
     }
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 impl From<&civil::DateTime> for ZipDateTime {
     fn from(value: &civil::DateTime) -> Self {
         let mut builder = ZipDateTimeBuilder::new();
@@ -109,7 +109,7 @@ impl From<&civil::DateTime> for ZipDateTime {
     }
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 impl TryFrom<&ZipDateTime> for civil::DateTime {
     type Error = jiff::Error;
 
@@ -126,14 +126,14 @@ impl TryFrom<&ZipDateTime> for civil::DateTime {
     }
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 impl From<civil::DateTime> for ZipDateTime {
     fn from(value: civil::DateTime) -> Self {
         (&value).into()
     }
 }
 
-#[cfg(feature = "jiff-02")]
+#[cfg(feature = "jiff")]
 impl TryFrom<ZipDateTime> for civil::DateTime {
     type Error = jiff::Error;
 
