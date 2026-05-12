@@ -3,8 +3,8 @@
 
 pub mod builder;
 
-#[cfg(feature = "chrono")]
-use chrono::{DateTime, Datelike, LocalResult, TimeZone, Timelike, Utc};
+#[cfg(feature = "jiff-02")]
+use jiff::{civil, tz::Offset, Timestamp};
 
 use self::builder::ZipDateTimeBuilder;
 
@@ -25,6 +25,19 @@ impl Default for ZipDateTime {
 }
 
 impl ZipDateTime {
+    /// Returns the current time if the `jiff-02` feature is enabled, otherwise the default of 1980-01-01.
+    pub fn default_for_write() -> Self {
+        #[cfg(feature = "jiff-02")]
+        {
+            Self::from_jiff(&Offset::UTC.to_datetime(Timestamp::now()))
+        }
+
+        #[cfg(not(feature = "jiff-02"))]
+        {
+            Self::default()
+        }
+    }
+
     /// Returns the year of this date & time.
     pub fn year(&self) -> i32 {
         (((self.date & 0xFE00) >> 9) + 1980).into()
@@ -57,20 +70,20 @@ impl ZipDateTime {
         ((self.time & 0x1F) << 1).into()
     }
 
-    /// Constructs chrono's [`DateTime`] representation of this date & time.
+    /// Constructs Jiff's [`civil::DateTime`] representation of this date & time.
     ///
-    /// Note that this requires the `chrono` feature.
-    #[cfg(feature = "chrono")]
-    pub fn as_chrono(&self) -> LocalResult<DateTime<Utc>> {
-        self.into()
+    /// Note that this requires the `jiff-02` feature.
+    #[cfg(feature = "jiff-02")]
+    pub fn as_jiff(&self) -> Result<civil::DateTime, jiff::Error> {
+        self.try_into()
     }
 
-    /// Constructs this date & time from chrono's [`DateTime`] representation.
+    /// Constructs this date & time from Jiff's [`civil::DateTime`] representation.
     ///
-    /// Note that this requires the `chrono` feature.
-    #[cfg(feature = "chrono")]
-    pub fn from_chrono(dt: &DateTime<Utc>) -> Self {
-        dt.into()
+    /// Note that this requires the `jiff-02` feature.
+    #[cfg(feature = "jiff-02")]
+    pub fn from_jiff(date_time: &civil::DateTime) -> Self {
+        date_time.into()
     }
 }
 
@@ -80,39 +93,51 @@ impl From<ZipDateTimeBuilder> for ZipDateTime {
     }
 }
 
-#[cfg(feature = "chrono")]
-impl From<&DateTime<Utc>> for ZipDateTime {
-    fn from(value: &DateTime<Utc>) -> Self {
+#[cfg(feature = "jiff-02")]
+impl From<&civil::DateTime> for ZipDateTime {
+    fn from(value: &civil::DateTime) -> Self {
         let mut builder = ZipDateTimeBuilder::new();
 
-        builder = builder.year(value.date_naive().year());
-        builder = builder.month(value.date_naive().month());
-        builder = builder.day(value.date_naive().day());
-        builder = builder.hour(value.time().hour());
-        builder = builder.minute(value.time().minute());
-        builder = builder.second(value.time().second());
+        builder = builder.year(value.year().into());
+        builder = builder.month(value.month() as u32);
+        builder = builder.day(value.day() as u32);
+        builder = builder.hour(value.hour() as u32);
+        builder = builder.minute(value.minute() as u32);
+        builder = builder.second(value.second() as u32);
 
         builder.build()
     }
 }
 
-#[cfg(feature = "chrono")]
-impl From<&ZipDateTime> for LocalResult<DateTime<Utc>> {
-    fn from(value: &ZipDateTime) -> Self {
-        Utc.with_ymd_and_hms(value.year(), value.month(), value.day(), value.hour(), value.minute(), value.second())
+#[cfg(feature = "jiff-02")]
+impl TryFrom<&ZipDateTime> for civil::DateTime {
+    type Error = jiff::Error;
+
+    fn try_from(value: &ZipDateTime) -> Result<Self, Self::Error> {
+        Self::new(
+            value.year() as i16,
+            value.month() as i8,
+            value.day() as i8,
+            value.hour() as i8,
+            value.minute() as i8,
+            value.second() as i8,
+            0,
+        )
     }
 }
 
-#[cfg(feature = "chrono")]
-impl From<DateTime<Utc>> for ZipDateTime {
-    fn from(value: DateTime<Utc>) -> Self {
+#[cfg(feature = "jiff-02")]
+impl From<civil::DateTime> for ZipDateTime {
+    fn from(value: civil::DateTime) -> Self {
         (&value).into()
     }
 }
 
-#[cfg(feature = "chrono")]
-impl From<ZipDateTime> for LocalResult<DateTime<Utc>> {
-    fn from(value: ZipDateTime) -> Self {
-        (&value).into()
+#[cfg(feature = "jiff-02")]
+impl TryFrom<ZipDateTime> for civil::DateTime {
+    type Error = jiff::Error;
+
+    fn try_from(value: ZipDateTime) -> Result<Self, Self::Error> {
+        (&value).try_into()
     }
 }
