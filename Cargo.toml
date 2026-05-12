@@ -1,6 +1,6 @@
 [package]
 name = "astral_async_zip"
-version = "0.0.18-rc2"
+version = "0.0.18-rc3"
 edition = "2021"
 authors = ["Harry [hello@majored.pw]"]
 repository = "https://github.com/astral-sh/rs-async-zip"
