@@ -16,10 +16,10 @@ categories = ["asynchronous", "compression"]
 name = "async_zip"
 
 [features]
-full = ["chrono", "tokio-fs", "deflate", "bzip2", "lzma", "zstd", "xz", "deflate64"]
+full = ["jiff", "tokio-fs", "deflate", "bzip2", "lzma", "zstd", "xz", "deflate64"]
 
 # All features that are compatible with WASM
-full-wasm = ["chrono", "deflate", "zstd"]
+full-wasm = ["jiff", "deflate", "zstd"]
 
 tokio = ["dep:tokio", "tokio-util", "tokio/io-util"]
 tokio-fs = ["tokio/fs"]
@@ -30,6 +30,7 @@ lzma = ["async-compression/lzma"]
 zstd = ["async-compression/zstd"]
 xz = ["async-compression/xz"]
 deflate64 = ["async-compression/deflate64"]
+jiff = ["dep:jiff"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -47,7 +48,7 @@ thiserror = "2.0.18"
 async-compression = { version = "0.4.2", default-features = false, features = [
     "futures-io",
 ], optional = true }
-chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+jiff = { version = "0.2", default-features = false, features = ["std"], optional = true }
 tokio = { version = "1", default-features = false, optional = true }
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
 
@@ -56,7 +57,7 @@ tokio-util = { version = "0.7", features = ["compat"], optional = true }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 env_logger = "0.11.2"
-zip = "2.1.5"
+zip = { version = "2.1.5", default-features = false }
 
 # shared across multiple examples
 anyhow = "1"

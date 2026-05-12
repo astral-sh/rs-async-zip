@@ -72,7 +72,7 @@ impl ZipEntry {
             uncompressed_size: 0,
             compressed_size: 0,
             attribute_compatibility: AttributeCompatibility::Unix,
-            last_modification_date: ZipDateTime::default(),
+            last_modification_date: ZipDateTime::default_for_write(),
             internal_file_attribute: 0,
             external_file_attribute: 0,
             extra_fields: Vec::new(),
