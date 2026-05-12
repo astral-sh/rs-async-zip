@@ -12,10 +12,16 @@ use self::builder::ZipDateTimeBuilder;
 // https://learn.microsoft.com/en-us/windows/win32/api/oleauto/nf-oleauto-dosdatetimetovarianttime
 
 /// A date and time stored as per the MS-DOS representation used by ZIP files.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct ZipDateTime {
     pub(crate) date: u16,
     pub(crate) time: u16,
+}
+
+impl Default for ZipDateTime {
+    fn default() -> Self {
+        ZipDateTimeBuilder::new().year(1980).month(1).day(1).build()
+    }
 }
 
 impl ZipDateTime {

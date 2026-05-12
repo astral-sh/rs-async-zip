@@ -7,6 +7,18 @@ use chrono::{TimeZone, Utc};
 use crate::ZipDateTimeBuilder;
 
 #[test]
+fn default_date_is_valid_msdos_epoch() {
+    let default = crate::ZipDateTime::default();
+
+    assert_eq!(1980, default.year());
+    assert_eq!(1, default.month());
+    assert_eq!(1, default.day());
+    assert_eq!(0, default.hour());
+    assert_eq!(0, default.minute());
+    assert_eq!(0, default.second());
+}
+
+#[test]
 #[cfg(feature = "chrono")]
 fn date_conversion_test_chrono() {
     let original_dt = Utc.timestamp_opt(1666544102, 0).unwrap();

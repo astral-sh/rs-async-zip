@@ -1,15 +1,14 @@
 // Copyright (c) 2022 Harry [Majored] [hello@majored.pw]
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
-use futures_lite::io::AsyncWrite;
+use futures_lite::io::{AsyncWrite, AsyncWriteExt};
 use std::io::Error;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::base::write::{central_directory_size_field, ZipFileWriter};
 use crate::error::{Zip64ErrorCase, ZipError};
-use crate::spec::consts::NON_ZIP64_MAX_SIZE;
-#[cfg(feature = "deflate64")]
+use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE};
 use crate::{Compression, ZipEntryBuilder};
 
 pub(crate) mod offset;
@@ -32,6 +31,53 @@ impl AsyncWrite for AsyncSink {
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Error>> {
         Poll::Ready(Ok(()))
     }
+}
+
+fn assert_default_modification_date(buffer: &[u8]) {
+    let local_header_signature = LFH_SIGNATURE.to_le_bytes();
+    assert_eq!(&buffer[..local_header_signature.len()], local_header_signature);
+    assert_eq!(u16::from_le_bytes(buffer[10..12].try_into().unwrap()), 0);
+    assert_eq!(u16::from_le_bytes(buffer[12..14].try_into().unwrap()), 0x21);
+
+    let central_directory_signature = CDH_SIGNATURE.to_le_bytes();
+    let central_directory_offset = buffer
+        .windows(central_directory_signature.len())
+        .position(|window| window == central_directory_signature)
+        .unwrap();
+    assert_eq!(
+        u16::from_le_bytes(buffer[central_directory_offset + 12..central_directory_offset + 14].try_into().unwrap()),
+        0
+    );
+    assert_eq!(
+        u16::from_le_bytes(buffer[central_directory_offset + 14..central_directory_offset + 16].try_into().unwrap()),
+        0x21
+    );
+}
+
+#[tokio::test]
+async fn default_modification_date_is_valid_for_whole_writes() {
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored);
+
+    writer.write_entry_whole(entry, b"data").await.unwrap();
+    writer.close().await.unwrap();
+
+    assert_default_modification_date(&buffer);
+}
+
+#[tokio::test]
+async fn default_modification_date_is_valid_for_stream_writes() {
+    let mut buffer = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut buffer);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored);
+
+    let mut entry_writer = writer.write_entry_stream(entry).await.unwrap();
+    entry_writer.write_all(b"data").await.unwrap();
+    entry_writer.close().await.unwrap();
+    writer.close().await.unwrap();
+
+    assert_default_modification_date(&buffer);
 }
 
 #[tokio::test]
