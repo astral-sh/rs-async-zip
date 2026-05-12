@@ -5,7 +5,7 @@ use std::io::{Error, IoSlice};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures_lite::io::AsyncWrite;
+use futures_lite::io::{AsyncSeek, AsyncWrite, SeekFrom};
 use pin_project::pin_project;
 
 /// A wrapper around an [`AsyncWrite`] implementation which tracks the current byte offset.
@@ -69,5 +69,21 @@ where
         bufs: &[IoSlice<'_>],
     ) -> Poll<Result<usize, Error>> {
         self.project().inner.poll_write_vectored(cx, bufs)
+    }
+}
+
+impl<W> AsyncSeek for AsyncOffsetWriter<W>
+where
+    W: AsyncWrite + AsyncSeek + Unpin,
+{
+    fn poll_seek(self: Pin<&mut Self>, cx: &mut Context<'_>, pos: SeekFrom) -> Poll<Result<u64, Error>> {
+        let this = self.project();
+        let poll = this.inner.poll_seek(cx, pos);
+
+        if let Poll::Ready(Ok(offset)) = &poll {
+            *this.offset = *offset;
+        }
+
+        poll
     }
 }

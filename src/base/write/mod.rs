@@ -50,10 +50,12 @@
 //! ```
 
 pub(crate) mod compressed_writer;
+pub(crate) mod entry_seekable;
 pub(crate) mod entry_stream;
 pub(crate) mod entry_whole;
 pub(crate) mod io;
 
+pub use entry_seekable::EntrySeekableWriter;
 pub use entry_stream::EntryStreamWriter;
 
 #[cfg(feature = "tokio")]
@@ -74,7 +76,7 @@ use entry_whole::EntryWholeWriter;
 use io::offset::AsyncOffsetWriter;
 
 use crate::spec::consts::{NON_ZIP64_MAX_NUM_FILES, NON_ZIP64_MAX_SIZE};
-use futures_lite::io::{AsyncWrite, AsyncWriteExt};
+use futures_lite::io::{AsyncSeek, AsyncWrite, AsyncWriteExt};
 
 pub(crate) struct CentralDirectoryEntry {
     pub header: CentralDirectoryRecord,
@@ -131,6 +133,17 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
     /// and a null CRC. This might cause problems with the destination reader.
     pub async fn write_entry_stream<E: Into<ZipEntry>>(&mut self, entry: E) -> Result<EntryStreamWriter<'_, W>> {
         EntryStreamWriter::from_raw(self, entry.into()).await
+    }
+
+    /// Write an entry of unknown size and data via streaming to a seekable output.
+    ///
+    /// This avoids data descriptors by seeking back to patch the local file header after
+    /// the entry is written.
+    pub async fn write_entry_seekable<E: Into<ZipEntry>>(&mut self, entry: E) -> Result<EntrySeekableWriter<'_, W>>
+    where
+        W: AsyncSeek,
+    {
+        EntrySeekableWriter::from_raw(self, entry.into()).await
     }
 
     /// Set the ZIP file comment.
