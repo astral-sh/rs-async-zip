@@ -322,6 +322,30 @@ async fn seekable_stream_updates_reserved_zip64_sizes_when_actual_size_fits() {
 }
 
 #[tokio::test]
+async fn seekable_stream_reserves_zip64_sizes_at_legacy_sentinel() {
+    let data = b"data";
+    let mut writer = ZipFileWriter::new(Cursor::new(Vec::new()));
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored)
+        .size(NON_ZIP64_MAX_SIZE as u64, NON_ZIP64_MAX_SIZE as u64);
+
+    let mut entry_writer = writer.write_entry_seekable(entry).await.unwrap();
+    entry_writer.write_all(data).await.unwrap();
+    entry_writer.close().await.unwrap();
+
+    assert!(writer.is_zip64);
+    let cd_entry = writer.cd_entries.last().unwrap();
+    assert_eq!(cd_entry.header.compressed_size, NON_ZIP64_MAX_SIZE);
+    assert_eq!(cd_entry.header.uncompressed_size, NON_ZIP64_MAX_SIZE);
+    match cd_entry.entry.extra_fields().last().unwrap() {
+        ExtraField::Zip64ExtendedInformation(zip64) => {
+            assert_eq!(zip64.compressed_size, Some(data.len() as u64));
+            assert_eq!(zip64.uncompressed_size, Some(data.len() as u64));
+        }
+        field => panic!("Expected a Zip64 extended field, got {field:?}"),
+    }
+}
+
+#[tokio::test]
 async fn seekable_stream_raises_version_needed_for_zip64_local_header_offset() {
     let mut writer = ZipFileWriter::new(SeekableAsyncSink::default());
     writer.writer.seek(SeekFrom::Start(NON_ZIP64_MAX_SIZE as u64 + 1)).await.unwrap();
@@ -346,6 +370,38 @@ async fn seekable_stream_raises_version_needed_for_zip64_local_header_offset() {
             assert_eq!(zip64.compressed_size, None);
             assert_eq!(zip64.uncompressed_size, None);
             assert_eq!(zip64.relative_header_offset, Some(NON_ZIP64_MAX_SIZE as u64 + 1));
+        }
+        field => panic!("Expected a Zip64 extended field, got {field:?}"),
+    }
+
+    writer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn seekable_stream_raises_version_needed_at_zip64_local_header_offset_sentinel() {
+    let mut writer = ZipFileWriter::new(SeekableAsyncSink::default());
+    writer.writer.seek(SeekFrom::Start(NON_ZIP64_MAX_SIZE as u64)).await.unwrap();
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored);
+
+    let mut entry_writer = writer.write_entry_seekable(entry).await.unwrap();
+    entry_writer.write_all(b"data").await.unwrap();
+    entry_writer.close().await.unwrap();
+
+    assert!(writer.is_zip64);
+    let local_header = writer
+        .writer
+        .inner_mut()
+        .bytes_written_at(NON_ZIP64_MAX_SIZE as u64 + LFH_SIGNATURE.to_le_bytes().len() as u64)
+        .unwrap();
+    assert_eq!(u16::from_le_bytes(local_header[0..2].try_into().unwrap()), 45);
+    let cd_entry = writer.cd_entries.last().unwrap();
+    assert_eq!(cd_entry.header.v_needed, 45);
+    assert_eq!(cd_entry.header.lh_offset, NON_ZIP64_MAX_SIZE);
+    match cd_entry.entry.extra_fields().last().unwrap() {
+        ExtraField::Zip64ExtendedInformation(zip64) => {
+            assert_eq!(zip64.compressed_size, None);
+            assert_eq!(zip64.uncompressed_size, None);
+            assert_eq!(zip64.relative_header_offset, Some(NON_ZIP64_MAX_SIZE as u64));
         }
         field => panic!("Expected a Zip64 extended field, got {field:?}"),
     }

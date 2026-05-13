@@ -89,7 +89,7 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
 
     async fn write_lfh(writer: &'b mut ZipFileWriter<W>, entry: &mut ZipEntry) -> Result<(LocalFileHeader, bool)> {
         let local_header_has_zip64_sizes =
-            entry.uncompressed_size > NON_ZIP64_MAX_SIZE as u64 || entry.compressed_size > NON_ZIP64_MAX_SIZE as u64;
+            entry.uncompressed_size >= NON_ZIP64_MAX_SIZE as u64 || entry.compressed_size >= NON_ZIP64_MAX_SIZE as u64;
         if local_header_has_zip64_sizes {
             if writer.force_no_zip64 {
                 return Err(ZipError::Zip64Needed(Zip64ErrorCase::LargeFile));
@@ -185,8 +185,8 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
         let end_offset = inner_writer.offset();
 
         let requires_zip64_sizes =
-            uncompressed_size > NON_ZIP64_MAX_SIZE as u64 || compressed_size > NON_ZIP64_MAX_SIZE as u64;
-        let requires_zip64_offset = self.lfh_offset > NON_ZIP64_MAX_SIZE as u64;
+            uncompressed_size >= NON_ZIP64_MAX_SIZE as u64 || compressed_size >= NON_ZIP64_MAX_SIZE as u64;
+        let requires_zip64_offset = self.lfh_offset >= NON_ZIP64_MAX_SIZE as u64;
 
         if self.force_no_zip64 && (requires_zip64_sizes || requires_zip64_offset) {
             return Err(ZipError::Zip64Needed(Zip64ErrorCase::LargeFile));
