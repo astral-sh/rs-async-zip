@@ -97,12 +97,21 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
             if !writer.is_zip64 {
                 writer.is_zip64 = true;
             }
-            entry.extra_fields.push(ExtraField::Zip64ExtendedInformation(Zip64ExtendedInformationExtraField {
-                uncompressed_size: Some(entry.uncompressed_size),
-                compressed_size: Some(entry.compressed_size),
-                relative_header_offset: None,
-                disk_start_number: None,
-            }));
+            // Reserve Zip64 size slots up front so the later header patch stays the same width.
+            match get_zip64_extra_field_mut(&mut entry.extra_fields) {
+                Some(zip64) => {
+                    zip64.uncompressed_size = Some(entry.uncompressed_size);
+                    zip64.compressed_size = Some(entry.compressed_size);
+                }
+                None => {
+                    entry.extra_fields.push(ExtraField::Zip64ExtendedInformation(Zip64ExtendedInformationExtraField {
+                        uncompressed_size: Some(entry.uncompressed_size),
+                        compressed_size: Some(entry.compressed_size),
+                        relative_header_offset: None,
+                        disk_start_number: None,
+                    }));
+                }
+            }
         }
 
         let utf8_without_alternative =

@@ -346,6 +346,34 @@ async fn seekable_stream_reserves_zip64_sizes_at_legacy_sentinel() {
 }
 
 #[tokio::test]
+async fn seekable_stream_preserves_data_with_existing_zip64_extra_field() {
+    let data = b"data";
+    let mut writer = ZipFileWriter::new(Cursor::new(Vec::new()));
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Stored)
+        .size(NON_ZIP64_MAX_SIZE as u64 + 1, NON_ZIP64_MAX_SIZE as u64 + 1)
+        .extra_fields(vec![ExtraField::Zip64ExtendedInformation(
+            crate::spec::header::Zip64ExtendedInformationExtraField {
+                uncompressed_size: None,
+                compressed_size: None,
+                relative_header_offset: None,
+                disk_start_number: None,
+            },
+        )]);
+
+    let mut entry_writer = writer.write_entry_seekable(entry).await.unwrap();
+    entry_writer.write_all(data).await.unwrap();
+    entry_writer.close().await.unwrap();
+    let buffer = writer.close().await.unwrap().into_inner();
+
+    let cursor = std::io::Cursor::new(buffer);
+    let mut zip = zip::read::ZipArchive::new(cursor).unwrap();
+    let mut file = zip.by_name("file").unwrap();
+    let mut contents = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut contents).unwrap();
+    assert_eq!(contents, data);
+}
+
+#[tokio::test]
 async fn seekable_stream_raises_version_needed_for_zip64_local_header_offset() {
     let mut writer = ZipFileWriter::new(SeekableAsyncSink::default());
     writer.writer.seek(SeekFrom::Start(NON_ZIP64_MAX_SIZE as u64 + 1)).await.unwrap();
