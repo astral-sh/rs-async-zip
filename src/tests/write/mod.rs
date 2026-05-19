@@ -17,6 +17,7 @@ use crate::ZipDateTime;
 use crate::{Compression, ZipEntryBuilder};
 
 pub(crate) mod offset;
+#[cfg(target_pointer_width = "64")]
 mod zip64;
 
 /// /dev/null for AsyncWrite.
