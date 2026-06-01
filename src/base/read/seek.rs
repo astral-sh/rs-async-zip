@@ -29,6 +29,7 @@
 use crate::base::read::io::entry::ZipEntryReader;
 use crate::error::{Result, ZipError};
 use crate::file::ZipFile;
+use std::sync::Arc;
 
 #[cfg(feature = "tokio")]
 use crate::tokio::read::seek::ZipFileReader as TokioZipFileReader;
@@ -44,7 +45,7 @@ use super::io::entry::{WithEntry, WithoutEntry};
 #[derive(Clone)]
 pub struct ZipFileReader<R> {
     reader: R,
-    file: ZipFile,
+    file: Arc<ZipFile>,
 }
 
 impl<R> ZipFileReader<R>
@@ -61,7 +62,7 @@ where
     ///
     /// Providing a [`ZipFile`] that wasn't derived from that source may lead to inaccurate parsing.
     pub fn from_raw_parts(reader: R, file: ZipFile) -> ZipFileReader<R> {
-        ZipFileReader { reader, file }
+        ZipFileReader { reader, file: Arc::new(file) }
     }
 
     /// Returns this ZIP file's information.
@@ -123,6 +124,24 @@ where
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures_lite::io::Cursor;
+
+    use super::ZipFileReader;
+    use crate::ZipFileBuilder;
+
+    #[test]
+    fn clone_shares_file_metadata() {
+        let reader = ZipFileReader::from_raw_parts(Cursor::new(Vec::new()), ZipFileBuilder::new().build());
+        let cloned_reader = reader.clone();
+
+        assert!(Arc::ptr_eq(&reader.file, &cloned_reader.file));
     }
 }
 
