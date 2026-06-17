@@ -154,6 +154,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
             flags: GeneralPurposeFlag {
                 data_descriptor: true,
                 encrypted: false,
+                strong_encryption: false,
                 filename_unicode: utf8_without_alternative,
             },
         };

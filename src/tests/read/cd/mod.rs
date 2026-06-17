@@ -76,3 +76,80 @@ async fn test_local_header_name_must_match_central_directory_name() {
     };
     assert!(matches!(err, ZipError::LocalFileHeaderNameMismatch));
 }
+
+#[tokio::test]
+async fn test_strong_encryption_entries_are_rejected() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-089-sample.zip").to_vec();
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected strong encryption to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("strong encryption")));
+}
+
+#[tokio::test]
+async fn test_streamed_central_strong_encryption_entries_are_rejected() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::CentralDirectoryReader;
+    use crate::error::ZipError;
+
+    // `CentralDirectoryReader` starts immediately after the first central-directory signature.
+    let mut record = [0; 42];
+    record[4..6].copy_from_slice(&0x0040_u16.to_le_bytes());
+    let mut reader = CentralDirectoryReader::new(Cursor::new(record), 0);
+
+    let Err(err) = reader.next().await else {
+        panic!("expected streamed strong encryption to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("strong encryption")));
+}
+
+fn strong_encryption_only_in_local_header() -> Vec<u8> {
+    use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE};
+
+    let mut data = include_bytes!("diff-089-sample.zip").to_vec();
+    let local_header = data.windows(4).position(|bytes| bytes == LFH_SIGNATURE.to_le_bytes()).unwrap();
+    let central_header = data.windows(4).position(|bytes| bytes == CDH_SIGNATURE.to_le_bytes()).unwrap();
+
+    // Set the strong-encryption flag in the local header, but clear it in the central-directory
+    // record so that local-header parsing is solely responsible for rejecting the entry. Use
+    // stored compression in both headers so this fixture works without compression features.
+    data[local_header + 6..local_header + 8].copy_from_slice(&0x0040_u16.to_le_bytes());
+    data[local_header + 8..local_header + 10].copy_from_slice(&0_u16.to_le_bytes());
+    data[central_header + 8..central_header + 10].copy_from_slice(&0_u16.to_le_bytes());
+    data[central_header + 10..central_header + 12].copy_from_slice(&0_u16.to_le_bytes());
+
+    data
+}
+
+#[tokio::test]
+async fn test_streamed_local_strong_encryption_entries_are_rejected() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(Cursor::new(strong_encryption_only_in_local_header()));
+
+    let Err(err) = reader.next_without_entry().await else {
+        panic!("expected local strong encryption to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("strong encryption")));
+}
+
+#[tokio::test]
+async fn test_seekable_local_strong_encryption_entries_are_rejected() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(strong_encryption_only_in_local_header()).await.unwrap();
+
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local strong encryption to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("strong encryption")));
+}
