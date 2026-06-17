@@ -156,6 +156,7 @@ impl<'b, 'c, W: AsyncWrite + Unpin> EntryWholeWriter<'b, 'c, W> {
                 data_descriptor: false,
                 encrypted: false,
                 strong_encryption: false,
+                compressed_patched: false,
                 filename_unicode: utf8_without_alternative,
             },
         };

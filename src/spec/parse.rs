@@ -40,6 +40,10 @@ impl GeneralPurposeFlag {
             false => 0x0,
             true => 0x40,
         };
+        let compressed_patched: u16 = match self.compressed_patched {
+            false => 0x0,
+            true => 0x20,
+        };
         let data_descriptor: u16 = match self.data_descriptor {
             false => 0x0,
             true => 0x8,
@@ -49,7 +53,7 @@ impl GeneralPurposeFlag {
             true => 0x800,
         };
 
-        (encrypted | strong_encryption | data_descriptor | filename_unicode).to_le_bytes()
+        (encrypted | strong_encryption | compressed_patched | data_descriptor | filename_unicode).to_le_bytes()
     }
 }
 
@@ -59,6 +63,9 @@ fn validate_general_purpose_flags(flags: GeneralPurposeFlag) -> Result<()> {
     }
     if flags.encrypted {
         return Err(ZipError::FeatureNotSupported("encryption"));
+    }
+    if flags.compressed_patched {
+        return Err(ZipError::FeatureNotSupported("compressed patched data"));
     }
 
     Ok(())
@@ -128,10 +135,11 @@ impl From<u16> for GeneralPurposeFlag {
     fn from(value: u16) -> GeneralPurposeFlag {
         let encrypted = !matches!(value & 0x1, 0);
         let strong_encryption = !matches!(value & 0x40, 0);
+        let compressed_patched = !matches!(value & 0x20, 0);
         let data_descriptor = !matches!((value & 0x8) >> 3, 0);
         let filename_unicode = !matches!((value & 0x800) >> 11, 0);
 
-        GeneralPurposeFlag { encrypted, strong_encryption, data_descriptor, filename_unicode }
+        GeneralPurposeFlag { encrypted, strong_encryption, compressed_patched, data_descriptor, filename_unicode }
     }
 }
 

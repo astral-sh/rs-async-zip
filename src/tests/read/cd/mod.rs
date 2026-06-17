@@ -530,3 +530,53 @@ async fn test_central_directory_encryption_is_rejected() {
     };
     assert!(matches!(err, ZipError::FeatureNotSupported("encryption")));
 }
+
+#[tokio::test]
+async fn test_compressed_patched_entries_are_rejected() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-088-sample.zip").to_vec();
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected compressed patched data to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("compressed patched data")));
+}
+
+#[tokio::test]
+async fn test_stream_with_entry_rejects_compressed_patched_local_headers() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let mut data = include_bytes!("diff-088-sample.zip").to_vec();
+    data[6] |= 0x20;
+    let zip = ZipFileReader::new(Cursor::new(data));
+
+    let Err(err) = zip.next_with_entry().await else {
+        panic!("expected compressed patched data in the local header to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("compressed patched data")));
+}
+
+#[tokio::test]
+async fn test_seekable_reader_rejects_compressed_patched_local_headers() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let mut data = include_bytes!("diff-088-sample.zip").to_vec();
+    let central_directory_offset =
+        data.windows(4).position(|window| window == [0x50, 0x4b, 0x01, 0x02]).expect("central directory record");
+
+    data[6] |= 0x20;
+    data[central_directory_offset + 8] &= !0x20;
+    data[central_directory_offset + 10..central_directory_offset + 12].copy_from_slice(&0u16.to_le_bytes());
+
+    let zip = ZipFileReader::new(data).await.expect("central directory should be valid");
+    let Err(err) = zip.reader_without_entry(0).await else {
+        panic!("expected compressed patched data in the local header to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("compressed patched data")));
+}
