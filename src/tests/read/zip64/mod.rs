@@ -169,6 +169,40 @@ async fn test_zip64_seekable_local_sentinel_requires_recognized_extra_field() {
     assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
 }
 
+#[tokio::test]
+async fn test_zip64_directory_size_must_cover_variable_length_entries() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::spec::consts::ZIP64_EOCDR_SIGNATURE;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut writer = ZipFileWriter::new(Vec::new()).force_zip64();
+    writer
+        .write_entry_whole(ZipEntryBuilder::new("long-alpha.txt".into(), Compression::Stored), b"alpha\n")
+        .await
+        .unwrap();
+    writer
+        .write_entry_whole(ZipEntryBuilder::new("long-beta.txt".into(), Compression::Stored), b"beta\n")
+        .await
+        .unwrap();
+    let mut data = writer.close().await.unwrap();
+
+    let zip64_eocd_offset = data
+        .windows(ZIP64_EOCDR_SIGNATURE.to_le_bytes().len())
+        .position(|window| window == ZIP64_EOCDR_SIGNATURE.to_le_bytes())
+        .unwrap();
+    // Select the ZIP64 directory-size field and make it cover only fixed CD headers.
+    data[zip64_eocd_offset + 40..zip64_eocd_offset + 48].copy_from_slice(&92_u64.to_le_bytes());
+    let eocd_offset = data.len() - 22;
+    data[eocd_offset + 12..eocd_offset + 16].copy_from_slice(&u32::MAX.to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected invalid central directory entry count");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: 2 }));
+}
+
 /// Generate an example file only if it doesn't exist already.
 /// The file is placed adjacent to this rs file.
 #[cfg(feature = "tokio")]

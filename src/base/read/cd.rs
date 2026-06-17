@@ -143,7 +143,7 @@ where
                     }
 
                     return Ok(Entry::EndOfCentralDirectoryRecord {
-                        record: CombinedCentralDirectoryRecord::from(&eocdr),
+                        record: CombinedCentralDirectoryRecord::try_from(&eocdr)?,
                         comment,
                         extensible: false,
                     });
@@ -196,7 +196,7 @@ where
 
                     // Combine the EOCDR and ZIP64 EOCDR.
                     let zip64_directory_size = zip64_eocdr.directory_size;
-                    let combined = CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr);
+                    let combined = CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr)?;
 
                     let observed_directory_size = offset.saturating_sub(self.offset);
                     if zip64_directory_size != observed_directory_size {

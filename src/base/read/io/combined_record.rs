@@ -2,6 +2,8 @@
 // Copyright (c) 2023 Cognite AS
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
+use crate::base::read::MIN_CENTRAL_DIRECTORY_ENTRY_SIZE;
+use crate::error::{Result, ZipError};
 use crate::spec::header::{EndOfCentralDirectoryHeader, Zip64EndOfCentralDirectoryRecord};
 
 /// Combines all the fields in EOCDR and Zip64EOCDR into one struct.
@@ -23,8 +25,8 @@ impl CombinedCentralDirectoryRecord {
     ///
     /// Fields that are set to their max value in the EOCDR will be overwritten by the contents of
     /// the corresponding Zip64EOCDR field.
-    pub fn combine(eocdr: EndOfCentralDirectoryHeader, zip64eocdr: Zip64EndOfCentralDirectoryRecord) -> Self {
-        let mut combined = Self::from(&eocdr);
+    pub fn combine(eocdr: EndOfCentralDirectoryHeader, zip64eocdr: Zip64EndOfCentralDirectoryRecord) -> Result<Self> {
+        let mut combined = Self::from_eocdr(&eocdr);
         if eocdr.disk_num == u16::MAX {
             combined.disk_number = zip64eocdr.disk_number;
         }
@@ -46,7 +48,7 @@ impl CombinedCentralDirectoryRecord {
         combined.version_made_by = Some(zip64eocdr.version_made_by);
         combined.version_needed_to_extract = Some(zip64eocdr.version_needed_to_extract);
 
-        combined
+        combined.validate()
     }
 
     /// Returns the offset of the start of the central directory in bytes.
@@ -58,11 +60,8 @@ impl CombinedCentralDirectoryRecord {
     pub fn num_entries(&self) -> u64 {
         self.num_entries_in_directory
     }
-}
 
-// An implementation for the case of no zip64EOCDR.
-impl From<&EndOfCentralDirectoryHeader> for CombinedCentralDirectoryRecord {
-    fn from(header: &EndOfCentralDirectoryHeader) -> Self {
+    fn from_eocdr(header: &EndOfCentralDirectoryHeader) -> Self {
         Self {
             version_made_by: None,
             version_needed_to_extract: None,
@@ -74,5 +73,24 @@ impl From<&EndOfCentralDirectoryHeader> for CombinedCentralDirectoryRecord {
             offset_of_start_of_directory: header.cent_dir_offset as u64,
             file_comment_length: header.file_comm_length,
         }
+    }
+
+    fn validate(self) -> Result<Self> {
+        let minimum_directory_size = self.num_entries_in_directory.saturating_mul(MIN_CENTRAL_DIRECTORY_ENTRY_SIZE);
+
+        if self.directory_size < minimum_directory_size {
+            return Err(ZipError::InvalidCentralDirectoryEntryCount { entries: self.num_entries_in_directory });
+        }
+
+        Ok(self)
+    }
+}
+
+// An implementation for the case of no zip64EOCDR.
+impl TryFrom<&EndOfCentralDirectoryHeader> for CombinedCentralDirectoryRecord {
+    type Error = ZipError;
+
+    fn try_from(header: &EndOfCentralDirectoryHeader) -> Result<Self> {
+        Self::from_eocdr(header).validate()
     }
 }
