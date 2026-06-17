@@ -57,7 +57,7 @@ where
     // Check the 20 bytes before the EOCDR for the Zip64 EOCDL, plus an extra 4 bytes because the offset
     // does not include the signature. If the ECODL exists we are dealing with a Zip64 file.
     let (eocdr, zip64) = match eocdr_offset.checked_sub(ZIP64_EOCDL_LENGTH + SIGNATURE_LENGTH as u64) {
-        None => (CombinedCentralDirectoryRecord::from(&eocdr), false),
+        None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false),
         Some(offset) => {
             reader.seek(SeekFrom::Start(offset)).await?;
             let zip64_locator = Zip64EndOfCentralDirectoryLocator::try_from_reader(&mut reader).await?;
@@ -67,9 +67,9 @@ where
                     reader.seek(SeekFrom::Start(locator.relative_offset + SIGNATURE_LENGTH as u64)).await?;
                     let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut reader).await?;
                     validate_zip64_entry_count(&zip64_eocdr, locator.relative_offset)?;
-                    (CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr), true)
+                    (CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr)?, true)
                 }
-                None => (CombinedCentralDirectoryRecord::from(&eocdr), false),
+                None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false),
             }
         }
     };
@@ -88,8 +88,14 @@ where
     // Because `eocdr.offset_of_start_of_directory` is a u64, we use MAX_CD_BUFFER_SIZE to prevent very large buffer sizes.
     let buf =
         BufReader::with_capacity(std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE), reader);
-    let entries =
-        crate::base::read::cd(buf, eocdr.num_entries_in_directory, eocdr.offset_of_start_of_directory, zip64).await?;
+    let entries = crate::base::read::cd(
+        buf,
+        eocdr.num_entries_in_directory,
+        eocdr.offset_of_start_of_directory,
+        eocdr.directory_size,
+        zip64,
+    )
+    .await?;
 
     Ok(ZipFile { entries, comment, zip64 })
 }
@@ -122,16 +128,19 @@ pub(crate) async fn cd<R>(
     mut reader: R,
     num_of_entries: u64,
     directory_start: u64,
+    directory_size: u64,
     zip64: bool,
 ) -> Result<Vec<StoredZipEntry>>
 where
     R: AsyncRead + Unpin,
 {
+    let claimed_entries = num_of_entries;
     let num_of_entries: usize = num_of_entries.try_into().map_err(|_| ZipError::TargetZip64NotSupported)?;
     let mut entries = Vec::with_capacity(cd_entry_capacity(num_of_entries, directory_start)?);
+    let mut remaining_directory_size = directory_size;
 
     for _ in 0..num_of_entries {
-        let entry = cd_record(&mut reader, zip64).await?;
+        let entry = cd_record(&mut reader, zip64, &mut remaining_directory_size, claimed_entries).await?;
         entries.push(entry);
     }
 
@@ -178,13 +187,31 @@ pub(crate) fn get_combined_sizes(
     Ok((uncompressed_size, compressed_size))
 }
 
-pub(crate) async fn cd_record<R>(mut reader: R, _zip64: bool) -> Result<StoredZipEntry>
+pub(crate) async fn cd_record<R>(
+    mut reader: R,
+    _zip64: bool,
+    remaining_directory_size: &mut u64,
+    claimed_entries: u64,
+) -> Result<StoredZipEntry>
 where
     R: AsyncRead + Unpin,
 {
+    if *remaining_directory_size < MIN_CENTRAL_DIRECTORY_ENTRY_SIZE {
+        return Err(ZipError::InvalidCentralDirectoryEntryCount { entries: claimed_entries });
+    }
+
     crate::utils::assert_signature(&mut reader, CDH_SIGNATURE).await?;
 
     let header = CentralDirectoryRecord::from_reader(&mut reader).await?;
+    let central_directory_entry_size = MIN_CENTRAL_DIRECTORY_ENTRY_SIZE
+        + header.file_name_length as u64
+        + header.extra_field_length as u64
+        + header.file_comment_length as u64;
+    if *remaining_directory_size < central_directory_entry_size {
+        return Err(ZipError::InvalidCentralDirectoryEntryCount { entries: claimed_entries });
+    }
+    *remaining_directory_size -= central_directory_entry_size;
+
     let header_size = (SIGNATURE_LENGTH + LFH_LENGTH) as u64;
     let trailing_size = header.file_name_length as u64 + header.extra_field_length as u64;
     let filename_basic = io::read_bytes(&mut reader, header.file_name_length.into()).await?;

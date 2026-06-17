@@ -580,3 +580,53 @@ async fn test_seekable_reader_rejects_compressed_patched_local_headers() {
     };
     assert!(matches!(err, ZipError::FeatureNotSupported("compressed patched data")));
 }
+
+#[tokio::test]
+async fn test_directory_size_must_cover_claimed_entry_count() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut writer = ZipFileWriter::new(Vec::new());
+    writer.write_entry_whole(ZipEntryBuilder::new("alpha.txt".into(), Compression::Stored), b"alpha\n").await.unwrap();
+    writer.write_entry_whole(ZipEntryBuilder::new("beta.txt".into(), Compression::Stored), b"beta\n").await.unwrap();
+    let mut data = writer.close().await.unwrap();
+
+    // Clear the EOCD central-directory size while leaving the two entry counts intact.
+    let eocd_offset = data.len() - 22;
+    data[eocd_offset + 12..eocd_offset + 16].fill(0);
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected invalid central directory entry count");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: 2 }));
+}
+
+#[tokio::test]
+async fn test_directory_size_must_cover_variable_length_entries() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut writer = ZipFileWriter::new(Vec::new());
+    writer
+        .write_entry_whole(ZipEntryBuilder::new("long-alpha.txt".into(), Compression::Stored), b"alpha\n")
+        .await
+        .unwrap();
+    writer
+        .write_entry_whole(ZipEntryBuilder::new("long-beta.txt".into(), Compression::Stored), b"beta\n")
+        .await
+        .unwrap();
+    let mut data = writer.close().await.unwrap();
+
+    // This size covers two fixed CD headers, but not their filename fields.
+    let eocd_offset = data.len() - 22;
+    data[eocd_offset + 12..eocd_offset + 16].copy_from_slice(&92_u32.to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected invalid central directory entry count");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: 2 }));
+}
