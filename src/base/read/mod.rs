@@ -351,8 +351,9 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
     {
         return Err(ZipError::FileNameContainsNul);
     }
-    if let Some(Ok(s)) = unicode_extra {
-        Ok(ZipString::new_with_alternative(s, basic))
+    if let Some(unicode_extra) = unicode_extra {
+        let unicode = unicode_extra.map_err(|_| ZipError::InfoZipUnicodePathFieldInvalidUtf8)?;
+        Ok(ZipString::new_with_alternative(unicode, basic))
     } else if basic_is_utf8 {
         Ok(ZipString::new(basic, StringEncoding::Utf8))
     } else {
@@ -365,5 +366,30 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
         } else {
             Ok(ZipString::new(basic, StringEncoding::Raw))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_matching_unicode_path_extra_field_is_rejected() {
+        let basic = b"basic.txt".to_vec();
+        let fields = [ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 {
+            crc32: crc32fast::hash(&basic),
+            unicode: vec![0xFF],
+        })];
+
+        assert!(matches!(detect_filename(basic, false, &fields), Err(ZipError::InfoZipUnicodePathFieldInvalidUtf8)));
+    }
+
+    #[test]
+    fn invalid_non_matching_unicode_path_extra_field_is_ignored() {
+        let basic = b"basic.txt".to_vec();
+        let fields =
+            [ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32: 0, unicode: vec![0xFF] })];
+
+        assert_eq!(detect_filename(basic, false, &fields).unwrap().as_str().unwrap(), "basic.txt");
     }
 }
