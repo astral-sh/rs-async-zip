@@ -72,6 +72,10 @@ pub enum ZipError {
     LocalFileHeaderDataDescriptorMismatch,
     #[error("local file header sizes did not match the central directory sizes")]
     LocalFileHeaderSizeMismatch,
+    #[error("entry data range was invalid")]
+    InvalidEntryDataRange,
+    #[error("entry data range ({start:#x}..{end:#x}) overlapped ZIP structure at {boundary:#x}")]
+    EntryDataRangeOverlap { start: u64, end: u64, boundary: u64 },
     #[error("Encountered an unexpected header (actual: {0:#x}, expected: {1:#x}).")]
     UnexpectedHeaderError(u32, u32),
 
