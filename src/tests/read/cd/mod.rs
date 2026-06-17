@@ -335,3 +335,33 @@ async fn test_streamed_zip64_central_directory_size_must_match_end_record() {
     };
     assert!(matches!(err, ZipError::InvalidCentralDirectorySize { expected: 0, .. }));
 }
+
+#[tokio::test]
+async fn test_nul_filenames_are_rejected() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::mem;
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-096-sample.zip").to_vec();
+
+    let Err(err) = mem::ZipFileReader::new(data.clone()).await else {
+        panic!("expected an embedded NUL filename to be rejected");
+    };
+    assert!(matches!(err, ZipError::FileNameContainsNul));
+
+    let mut zip = ZipFileReader::new(Cursor::new(data));
+    loop {
+        match zip.next_with_entry().await {
+            Err(err) => {
+                assert!(matches!(err, ZipError::FileNameContainsNul));
+                break;
+            }
+            Ok(Some(entry)) => {
+                (.., zip) = entry.skip().await.unwrap();
+            }
+            Ok(None) => panic!("expected an embedded NUL filename to be rejected while streaming"),
+        }
+    }
+}

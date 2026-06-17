@@ -212,7 +212,7 @@ where
         }
     }
 
-    let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
+    let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
     let comment = detect_comment(comment_basic, header.flags.filename_unicode, extra_fields.as_ref());
 
     let entry = ZipEntry {
@@ -278,7 +278,7 @@ where
         return Err(ZipError::FeatureNotSupported("encryption"));
     }
 
-    let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
+    let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
 
     let entry = ZipEntry {
         filename,
@@ -339,7 +339,7 @@ fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFiel
     }
 }
 
-fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
+fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> Result<ZipString> {
     let unicode_extra = extra_fields.iter().find_map(|field| match field {
         ExtraField::InfoZipUnicodePath(InfoZipUnicodePathExtraField::V1 { crc32, unicode }) => {
             if !unicode.is_empty() && *crc32 == crc32fast::hash(&basic) {
@@ -350,19 +350,24 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
         }
         _ => None,
     });
+    if basic.contains(&0)
+        || unicode_extra.as_ref().is_some_and(|value| value.as_ref().is_ok_and(|value| value.contains('\0')))
+    {
+        return Err(ZipError::FileNameContainsNul);
+    }
     if let Some(Ok(s)) = unicode_extra {
-        ZipString::new_with_alternative(s, basic)
+        Ok(ZipString::new_with_alternative(s, basic))
     } else if basic_is_utf8 {
-        ZipString::new(basic, StringEncoding::Utf8)
+        Ok(ZipString::new(basic, StringEncoding::Utf8))
     } else {
         // Do not treat as UTF-8 if UTF-8 flags are not set,
         // some string in MBCS may be valid UTF-8 in form, but they are not in truth.
         if basic.is_ascii() {
             // SAFETY:
             // a valid ASCII string is always a valid UTF-8 string
-            unsafe { std::string::String::from_utf8_unchecked(basic).into() }
+            Ok(unsafe { std::string::String::from_utf8_unchecked(basic).into() })
         } else {
-            ZipString::new(basic, StringEncoding::Raw)
+            Ok(ZipString::new(basic, StringEncoding::Raw))
         }
     }
 }
