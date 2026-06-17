@@ -252,7 +252,7 @@ where
         };
 
         // Parse out the filename.
-        let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref());
+        let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
 
         Ok(Entry::CentralDirectoryEntry(CentralDirectoryEntry {
             header,

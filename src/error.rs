@@ -46,6 +46,8 @@ pub enum ZipError {
     CommentTooLarge,
     #[error("filename exceeded maximum size")]
     FileNameTooLarge,
+    #[error("filename contained an embedded NUL byte")]
+    FileNameContainsNul,
     #[error("attempted to convert non-UTF8 bytes to a string/str")]
     StringNotUtf8,
 
