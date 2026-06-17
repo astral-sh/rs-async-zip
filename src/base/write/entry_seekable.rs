@@ -163,6 +163,7 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
                 data_descriptor: false,
                 encrypted: false,
                 strong_encryption: false,
+                compressed_patched: false,
                 filename_unicode: utf8_without_alternative,
             },
         };

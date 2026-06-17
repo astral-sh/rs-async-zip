@@ -155,6 +155,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
                 data_descriptor: true,
                 encrypted: false,
                 strong_encryption: false,
+                compressed_patched: false,
                 filename_unicode: utf8_without_alternative,
             },
         };

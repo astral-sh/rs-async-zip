@@ -20,6 +20,7 @@ pub struct LocalFileHeader {
 pub struct GeneralPurposeFlag {
     pub encrypted: bool,
     pub strong_encryption: bool,
+    pub compressed_patched: bool,
     pub data_descriptor: bool,
     pub filename_unicode: bool,
 }
