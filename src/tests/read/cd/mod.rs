@@ -245,3 +245,93 @@ async fn test_incremental_central_directory_reader_accepts_maximum_supported_ext
 
     assert!(matches!(cdr.next().await.unwrap(), Entry::CentralDirectoryEntry(_)));
 }
+
+/// Verifies that a streamed read rejects a physical central-directory entry when the ordinary
+/// EOCD record declares a central-directory byte span one byte shorter than the actual entry.
+#[tokio::test]
+async fn test_streamed_central_directory_size_must_match_end_record() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::{CentralDirectoryReader, Entry};
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-094-sample.zip").to_vec();
+    let mut cursor = Cursor::new(data);
+    let mut zip = ZipFileReader::new(&mut cursor);
+
+    let mut offset = 0;
+    while let Some(entry) = zip.next_with_entry().await.unwrap() {
+        (.., zip) = entry.skip().await.unwrap();
+        offset = zip.offset();
+    }
+
+    let mut cdr = CentralDirectoryReader::new(&mut cursor, offset);
+    assert!(matches!(cdr.next().await.unwrap(), Entry::CentralDirectoryEntry(_)));
+
+    let Err(err) = cdr.next().await else {
+        panic!("expected central-directory size mismatch");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectorySize { .. }));
+}
+
+/// Verifies that a streamed read rejects a physical central-directory entry when the ordinary
+/// EOCD record declares a zero-byte central directory.
+#[tokio::test]
+async fn test_streamed_zero_central_directory_size_must_match_end_record() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::{CentralDirectoryReader, Entry};
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("zero-central-directory-size.zip").to_vec();
+
+    let mut cursor = Cursor::new(data);
+    let mut zip = ZipFileReader::new(&mut cursor);
+
+    let mut offset = 0;
+    while let Some(entry) = zip.next_with_entry().await.unwrap() {
+        (.., zip) = entry.skip().await.unwrap();
+        offset = zip.offset();
+    }
+
+    let mut cdr = CentralDirectoryReader::new(&mut cursor, offset);
+    assert!(matches!(cdr.next().await.unwrap(), Entry::CentralDirectoryEntry(_)));
+
+    let Err(err) = cdr.next().await else {
+        panic!("expected central-directory size mismatch");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectorySize { expected: 0, .. }));
+}
+
+#[tokio::test]
+async fn test_streamed_zip64_central_directory_size_must_match_end_record() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::{CentralDirectoryReader, Entry};
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+    use crate::spec::consts::ZIP64_EOCDR_SIGNATURE;
+
+    let mut data = include_bytes!("../zip64/zip64.zip").to_vec();
+    let zip64_eocdr_offset = data.windows(4).position(|bytes| bytes == ZIP64_EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    data[zip64_eocdr_offset + 40..zip64_eocdr_offset + 48].copy_from_slice(&0_u64.to_le_bytes());
+
+    let mut cursor = Cursor::new(data);
+    let mut zip = ZipFileReader::new(&mut cursor);
+
+    let mut offset = 0;
+    while let Some(entry) = zip.next_with_entry().await.unwrap() {
+        (.., zip) = entry.skip().await.unwrap();
+        offset = zip.offset();
+    }
+
+    let mut cdr = CentralDirectoryReader::new(&mut cursor, offset);
+    assert!(matches!(cdr.next().await.unwrap(), Entry::CentralDirectoryEntry(_)));
+
+    let Err(err) = cdr.next().await else {
+        panic!("expected ZIP64 central-directory size mismatch");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectorySize { expected: 0, .. }));
+}

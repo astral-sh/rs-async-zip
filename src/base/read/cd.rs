@@ -121,6 +121,14 @@ where
                     // Read the end-of-central-directory header.
                     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut self.reader).await?;
 
+                    let observed_directory_size = offset.saturating_sub(self.offset);
+                    if eocdr.size_cent_dir as u64 != observed_directory_size {
+                        return Err(ZipError::InvalidCentralDirectorySize {
+                            expected: eocdr.size_cent_dir as u64,
+                            actual: observed_directory_size,
+                        });
+                    }
+
                     // Read the EOCDR comment.
                     let comment =
                         io::read_string(&mut self.reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8)
@@ -187,7 +195,16 @@ where
                             .await?;
 
                     // Combine the EOCDR and ZIP64 EOCDR.
+                    let zip64_directory_size = zip64_eocdr.directory_size;
                     let combined = CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr);
+
+                    let observed_directory_size = offset.saturating_sub(self.offset);
+                    if zip64_directory_size != observed_directory_size {
+                        return Err(ZipError::InvalidCentralDirectorySize {
+                            expected: zip64_directory_size,
+                            actual: observed_directory_size,
+                        });
+                    }
 
                     // Verify that the EOCDR offset matches the current reader offset.
                     if combined.central_directory_offset() != self.offset {

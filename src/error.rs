@@ -76,6 +76,8 @@ pub enum ZipError {
 
     #[error("the end of central directory offset ({0:#x}) did not match the actual offset ({1:#x})")]
     InvalidEndOfCentralDirectoryOffset(u64, u64),
+    #[error("the central directory size ({expected:#x}) did not match the observed byte span ({actual:#x})")]
+    InvalidCentralDirectorySize { expected: u64, actual: u64 },
     #[error("the central directory entry count ({entries}) exceeds the available central directory range")]
     InvalidCentralDirectoryEntryCount { entries: u64 },
     #[error("the zip64 end of central directory locator was not found")]
