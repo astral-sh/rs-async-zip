@@ -62,3 +62,17 @@ async fn test_zip64_central_sentinel_requires_recognized_extra_field() {
     };
     assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
 }
+
+#[tokio::test]
+async fn test_local_header_name_must_match_central_directory_name() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-004-sample.zip").to_vec();
+    let reader = ZipFileReader::new(data).await.unwrap();
+
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local header name mismatch");
+    };
+    assert!(matches!(err, ZipError::LocalFileHeaderNameMismatch));
+}

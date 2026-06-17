@@ -217,7 +217,10 @@ impl StoredZipEntry {
 
         // Read and validate the local file header's trailing data.
         let header = LocalFileHeader::from_reader(&mut reader).await?;
-        reader.seek(SeekFrom::Current(header.file_name_length.into())).await?;
+        let local_filename = crate::base::read::io::read_bytes(&mut reader, header.file_name_length.into()).await?;
+        if local_filename.as_slice() != self.entry.filename().as_bytes() {
+            return Err(ZipError::LocalFileHeaderNameMismatch);
+        }
         let mut extra_field = vec![0; usize::from(header.extra_field_length)];
         reader.read_exact(&mut extra_field).await?;
         let extra_fields =
