@@ -13,6 +13,7 @@ use crate::entry::ZipEntry;
 use crate::spec::Compression;
 
 pub(crate) const SPEC_VERSION_MADE_BY: u16 = 63;
+pub(crate) const MAX_SUPPORTED_EXTRACT_VERSION: u16 = 63;
 
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#443
 pub fn as_needed_to_extract(entry: &ZipEntry) -> u16 {

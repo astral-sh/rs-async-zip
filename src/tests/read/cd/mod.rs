@@ -1,6 +1,29 @@
 // Copyright (c) 2025 Astral
 // MIT License (https://github.com/astral-sh/rs-async-zip/blob/main/LICENSE)
 
+use crate::spec::version::MAX_SUPPORTED_EXTRACT_VERSION;
+
+const UNSUPPORTED_EXTRACT_VERSION: u16 = MAX_SUPPORTED_EXTRACT_VERSION + 1;
+
+fn diff_092_data(local_version: u16, central_version: u16) -> Vec<u8> {
+    use crate::spec::consts::CDH_SIGNATURE;
+
+    let mut data = include_bytes!("diff-092-sample.zip").to_vec();
+    data[4..6].copy_from_slice(&local_version.to_le_bytes());
+
+    let signature = CDH_SIGNATURE.to_le_bytes();
+    let offset = data.windows(signature.len()).position(|window| window == signature).unwrap();
+    data[offset + 6..offset + 8].copy_from_slice(&central_version.to_le_bytes());
+    data
+}
+
+fn central_directory_offset(data: &[u8]) -> usize {
+    use crate::spec::consts::CDH_SIGNATURE;
+
+    let signature = CDH_SIGNATURE.to_le_bytes();
+    data.windows(signature.len()).position(|window| window == signature).unwrap()
+}
+
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn test_nonempty_cd_comment() {
@@ -152,4 +175,73 @@ async fn test_seekable_local_strong_encryption_entries_are_rejected() {
         panic!("expected local strong encryption to be rejected");
     };
     assert!(matches!(err, ZipError::FeatureNotSupported("strong encryption")));
+}
+
+#[tokio::test]
+async fn test_archive_rejects_unsupported_central_directory_extract_versions() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = diff_092_data(20, UNSUPPORTED_EXTRACT_VERSION);
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected extract version to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("zip file version > 6.3")));
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn test_stream_rejects_unsupported_local_extract_versions() {
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = diff_092_data(UNSUPPORTED_EXTRACT_VERSION, 20);
+
+    let Err(err) = ZipFileReader::new(data.as_slice()).next_with_entry().await else {
+        panic!("expected local extract version to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("zip file version > 6.3")));
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn test_stream_accepts_maximum_supported_local_extract_version() {
+    use crate::base::read::stream::ZipFileReader;
+
+    let data = diff_092_data(MAX_SUPPORTED_EXTRACT_VERSION, 20);
+
+    assert!(ZipFileReader::new(data.as_slice()).next_with_entry().await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn test_incremental_central_directory_reader_rejects_unsupported_extract_versions() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::CentralDirectoryReader;
+    use crate::error::ZipError;
+
+    let data = diff_092_data(20, UNSUPPORTED_EXTRACT_VERSION);
+    let offset = central_directory_offset(&data);
+    let mut cursor = Cursor::new(&data[offset + 4..]);
+    let mut cdr = CentralDirectoryReader::new(&mut cursor, offset as u64);
+
+    let Err(err) = cdr.next().await else {
+        panic!("expected extract version to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("zip file version > 6.3")));
+}
+
+#[tokio::test]
+async fn test_incremental_central_directory_reader_accepts_maximum_supported_extract_version() {
+    use futures_lite::io::Cursor;
+
+    use crate::base::read::cd::{CentralDirectoryReader, Entry};
+
+    let data = diff_092_data(20, MAX_SUPPORTED_EXTRACT_VERSION);
+    let offset = central_directory_offset(&data);
+    let mut cursor = Cursor::new(&data[offset + 4..]);
+    let mut cdr = CentralDirectoryReader::new(&mut cursor, offset as u64);
+
+    assert!(matches!(cdr.next().await.unwrap(), Entry::CentralDirectoryEntry(_)));
 }
