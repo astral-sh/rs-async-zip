@@ -7,12 +7,14 @@ use std::ops::Deref;
 
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, SeekFrom};
 
+use crate::base::read::{get_combined_sizes, get_zip64_extra_field};
 use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
     consts::LFH_SIGNATURE,
     header::{ExtraField, LocalFileHeader},
+    parse::parse_extra_fields,
     Compression,
 };
 use crate::{string::ZipString, ZipDateTime};
@@ -213,10 +215,15 @@ impl StoredZipEntry {
             actual => return Err(ZipError::UnexpectedHeaderError(actual, LFH_SIGNATURE)),
         };
 
-        // Skip the local file header and trailing data
+        // Read and validate the local file header's trailing data.
         let header = LocalFileHeader::from_reader(&mut reader).await?;
-        let trailing_size = (header.file_name_length as i64) + (header.extra_field_length as i64);
-        reader.seek(SeekFrom::Current(trailing_size)).await?;
+        reader.seek(SeekFrom::Current(header.file_name_length.into())).await?;
+        let mut extra_field = vec![0; usize::from(header.extra_field_length)];
+        reader.read_exact(&mut extra_field).await?;
+        let extra_fields =
+            parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size, None, None)?;
+        let zip64_extra_field = get_zip64_extra_field(&extra_fields);
+        get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?;
 
         Ok(())
     }

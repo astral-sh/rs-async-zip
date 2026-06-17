@@ -4,9 +4,29 @@
 
 use futures_lite::io::AsyncReadExt;
 
+use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE};
 use crate::tests::init_logger;
 
 const ZIP64_ZIP_CONTENTS: &str = "Hello World!\n";
+
+fn retag_zip64_extra_field(mut data: Vec<u8>, signature: u32) -> Vec<u8> {
+    let signature_offset =
+        data.windows(4).position(|bytes| bytes == signature.to_le_bytes()).expect("header signature");
+    let (header_size, filename_length_offset) = match signature {
+        LFH_SIGNATURE => (30, 26),
+        CDH_SIGNATURE => (46, 28),
+        _ => panic!("unsupported header signature"),
+    };
+    let filename_length = u16::from_le_bytes(
+        data[signature_offset + filename_length_offset..signature_offset + filename_length_offset + 2]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let extra_field_offset = signature_offset + header_size + filename_length;
+    assert_eq!(&data[extra_field_offset..extra_field_offset + 2], &1_u16.to_le_bytes());
+    data[extra_field_offset..extra_field_offset + 2].copy_from_slice(&0xf00d_u16.to_le_bytes());
+    data
+}
 
 /// Tests opening and reading a zip64 archive.
 /// It contains one file named "-" with a zip 64 extended field header.
@@ -93,6 +113,60 @@ async fn test_zip64_entry_count_must_fit_before_zip64_eocdr() {
         panic!("expected invalid central directory entry count");
     };
     assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: u64::MAX }));
+}
+
+#[tokio::test]
+async fn test_zip64_sentinel_requires_matching_extra_value() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-002-sample.zip").to_vec();
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected incomplete ZIP64 extended field");
+    };
+    assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
+}
+
+#[tokio::test]
+async fn test_zip64_central_sentinel_requires_recognized_extra_field() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = retag_zip64_extra_field(include_bytes!("diff-002-sample.zip").to_vec(), CDH_SIGNATURE);
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected missing ZIP64 extended field");
+    };
+    assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
+}
+
+#[tokio::test]
+async fn test_zip64_local_sentinel_requires_recognized_extra_field() {
+    use crate::base::read::stream::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = retag_zip64_extra_field(include_bytes!("zip64.zip").to_vec(), LFH_SIGNATURE);
+    let reader = ZipFileReader::new(data.as_slice());
+
+    let Err(err) = reader.next_without_entry().await else {
+        panic!("expected missing ZIP64 extended field");
+    };
+    assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
+}
+
+#[tokio::test]
+async fn test_zip64_seekable_local_sentinel_requires_recognized_extra_field() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = retag_zip64_extra_field(include_bytes!("zip64.zip").to_vec(), LFH_SIGNATURE);
+    let reader = ZipFileReader::new(data).await.unwrap();
+
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected missing ZIP64 extended field");
+    };
+    assert!(matches!(err, ZipError::Zip64ExtendedFieldIncomplete));
 }
 
 /// Generate an example file only if it doesn't exist already.
