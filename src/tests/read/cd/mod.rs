@@ -582,6 +582,29 @@ async fn test_seekable_reader_rejects_compressed_patched_local_headers() {
 }
 
 #[tokio::test]
+async fn test_entry_body_must_not_overlap_later_local_header() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("a".into(), Compression::Stored), b"").await.unwrap();
+    writer.write_entry_whole(ZipEntryBuilder::new("b".into(), Compression::Stored), b"").await.unwrap();
+    writer.close().await.unwrap();
+
+    let central_directory =
+        data.windows(4).position(|window| window == b"PK\x01\x02").expect("expected central directory");
+    data[central_directory + 20..central_directory + 24].copy_from_slice(&1_u32.to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected overlapping entry range");
+    };
+    assert!(matches!(err, ZipError::EntryDataRangeOverlap { .. }));
+}
+
+#[tokio::test]
 async fn test_directory_size_must_cover_claimed_entry_count() {
     use crate::base::read::mem::ZipFileReader;
     use crate::base::write::ZipFileWriter;
@@ -629,4 +652,46 @@ async fn test_directory_size_must_cover_variable_length_entries() {
         panic!("expected invalid central directory entry count");
     };
     assert!(matches!(err, ZipError::InvalidCentralDirectoryEntryCount { entries: 2 }));
+}
+
+#[tokio::test]
+async fn test_local_extra_field_must_not_overlap_later_local_header() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("a".into(), Compression::Stored), b"").await.unwrap();
+    writer.write_entry_whole(ZipEntryBuilder::new("b".into(), Compression::Stored), b"").await.unwrap();
+    writer.close().await.unwrap();
+
+    // Consume the following local file header signature as a local-only extra field.
+    data[28..30].copy_from_slice(&4_u16.to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected overlapping local header range");
+    };
+    assert!(matches!(err, ZipError::EntryDataRangeOverlap { .. }));
+}
+
+#[tokio::test]
+async fn test_many_entry_ranges_validate() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    for index in 0..1_024 {
+        writer
+            .write_entry_whole(ZipEntryBuilder::new(format!("{index}").into(), Compression::Stored), b"")
+            .await
+            .unwrap();
+    }
+    writer.close().await.unwrap();
+
+    let reader = ZipFileReader::new(data).await.unwrap();
+    assert_eq!(reader.file().entries().len(), 1_024);
 }
