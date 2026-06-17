@@ -3,5 +3,6 @@
 
 pub(crate) mod cd;
 pub(crate) mod compression;
+pub(crate) mod encryption;
 pub(crate) mod locator;
 pub(crate) mod zip64;

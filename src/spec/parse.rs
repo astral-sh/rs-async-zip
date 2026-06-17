@@ -57,6 +57,9 @@ fn validate_general_purpose_flags(flags: GeneralPurposeFlag) -> Result<()> {
     if flags.strong_encryption {
         return Err(ZipError::FeatureNotSupported("strong encryption"));
     }
+    if flags.encrypted {
+        return Err(ZipError::FeatureNotSupported("encryption"));
+    }
 
     Ok(())
 }

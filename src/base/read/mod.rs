@@ -274,10 +274,6 @@ where
             "stream reading entries with data descriptors & Stored compression mode",
         ));
     }
-    if header.flags.encrypted {
-        return Err(ZipError::FeatureNotSupported("encryption"));
-    }
-
     let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
 
     let entry = ZipEntry {
