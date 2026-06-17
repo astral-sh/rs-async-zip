@@ -517,3 +517,16 @@ async fn test_each_local_zip64_size_must_have_an_override() {
         assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
     }
 }
+
+#[tokio::test]
+async fn test_central_directory_encryption_is_rejected() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let data = include_bytes!("diff-085-sample.zip").to_vec();
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected central-directory encryption to be rejected");
+    };
+    assert!(matches!(err, ZipError::FeatureNotSupported("encryption")));
+}
