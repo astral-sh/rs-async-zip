@@ -12,7 +12,7 @@ use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
-    consts::LFH_SIGNATURE,
+    consts::{LFH_SIGNATURE, NON_ZIP64_MAX_SIZE},
     header::{ExtraField, LocalFileHeader},
     parse::parse_extra_fields,
     Compression,
@@ -217,16 +217,47 @@ impl StoredZipEntry {
 
         // Read and validate the local file header's trailing data.
         let header = LocalFileHeader::from_reader(&mut reader).await?;
+        if header.flags.data_descriptor != self.entry.data_descriptor {
+            return Err(ZipError::LocalFileHeaderDataDescriptorMismatch);
+        }
+
         let local_filename = crate::base::read::io::read_bytes(&mut reader, header.file_name_length.into()).await?;
         if local_filename.as_slice() != self.entry.filename().as_bytes() {
             return Err(ZipError::LocalFileHeaderNameMismatch);
         }
+
+        if !header.flags.data_descriptor
+            && ((header.compressed_size != NON_ZIP64_MAX_SIZE
+                && header.compressed_size as u64 != self.entry.compressed_size)
+                || (header.uncompressed_size != NON_ZIP64_MAX_SIZE
+                    && header.uncompressed_size as u64 != self.entry.uncompressed_size))
+        {
+            return Err(ZipError::LocalFileHeaderSizeMismatch);
+        }
+
         let mut extra_field = vec![0; usize::from(header.extra_field_length)];
         reader.read_exact(&mut extra_field).await?;
         let extra_fields =
             parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size, None, None)?;
         let zip64_extra_field = get_zip64_extra_field(&extra_fields);
-        get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?;
+
+        if !header.flags.data_descriptor
+            && zip64_extra_field.is_none()
+            && extra_fields.is_empty()
+            && (header.compressed_size == NON_ZIP64_MAX_SIZE || header.uncompressed_size == NON_ZIP64_MAX_SIZE)
+        {
+            return Err(ZipError::LocalFileHeaderSizeMismatch);
+        }
+
+        let (local_uncompressed_size, local_compressed_size) =
+            get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?;
+
+        if !header.flags.data_descriptor
+            && (local_compressed_size != self.entry.compressed_size
+                || local_uncompressed_size != self.entry.uncompressed_size)
+        {
+            return Err(ZipError::LocalFileHeaderSizeMismatch);
+        }
 
         Ok(())
     }
