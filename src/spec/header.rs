@@ -19,6 +19,7 @@ pub struct LocalFileHeader {
 #[derive(Copy, Clone)]
 pub struct GeneralPurposeFlag {
     pub encrypted: bool,
+    pub strong_encryption: bool,
     pub data_descriptor: bool,
     pub filename_unicode: bool,
 }

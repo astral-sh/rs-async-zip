@@ -35,6 +35,10 @@ impl GeneralPurposeFlag {
             false => 0x0,
             true => 0b1,
         };
+        let strong_encryption: u16 = match self.strong_encryption {
+            false => 0x0,
+            true => 0x40,
+        };
         let data_descriptor: u16 = match self.data_descriptor {
             false => 0x0,
             true => 0x8,
@@ -44,8 +48,16 @@ impl GeneralPurposeFlag {
             true => 0x800,
         };
 
-        (encrypted | data_descriptor | filename_unicode).to_le_bytes()
+        (encrypted | strong_encryption | data_descriptor | filename_unicode).to_le_bytes()
     }
+}
+
+fn validate_general_purpose_flags(flags: GeneralPurposeFlag) -> Result<()> {
+    if flags.strong_encryption {
+        return Err(ZipError::FeatureNotSupported("strong encryption"));
+    }
+
+    Ok(())
 }
 
 impl CentralDirectoryRecord {
@@ -111,10 +123,11 @@ impl From<[u8; 26]> for LocalFileHeader {
 impl From<u16> for GeneralPurposeFlag {
     fn from(value: u16) -> GeneralPurposeFlag {
         let encrypted = !matches!(value & 0x1, 0);
+        let strong_encryption = !matches!(value & 0x40, 0);
         let data_descriptor = !matches!((value & 0x8) >> 3, 0);
         let filename_unicode = !matches!((value & 0x800) >> 11, 0);
 
-        GeneralPurposeFlag { encrypted, data_descriptor, filename_unicode }
+        GeneralPurposeFlag { encrypted, strong_encryption, data_descriptor, filename_unicode }
     }
 }
 
@@ -197,7 +210,9 @@ impl LocalFileHeader {
     pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<LocalFileHeader> {
         let mut buffer: [u8; 26] = [0; 26];
         reader.read_exact(&mut buffer).await?;
-        Ok(LocalFileHeader::from(buffer))
+        let header = LocalFileHeader::from(buffer);
+        validate_general_purpose_flags(header.flags)?;
+        Ok(header)
     }
 }
 
@@ -213,7 +228,9 @@ impl CentralDirectoryRecord {
     pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<CentralDirectoryRecord> {
         let mut buffer: [u8; 42] = [0; 42];
         reader.read_exact(&mut buffer).await?;
-        Ok(CentralDirectoryRecord::from(buffer))
+        let header = CentralDirectoryRecord::from(buffer);
+        validate_general_purpose_flags(header.flags)?;
+        Ok(header)
     }
 }
 

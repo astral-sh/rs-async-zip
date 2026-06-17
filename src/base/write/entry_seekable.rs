@@ -162,6 +162,7 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
             flags: GeneralPurposeFlag {
                 data_descriptor: false,
                 encrypted: false,
+                strong_encryption: false,
                 filename_unicode: utf8_without_alternative,
             },
         };
