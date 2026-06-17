@@ -68,6 +68,10 @@ pub enum ZipError {
     EntryIndexOutOfBounds,
     #[error("the local file header name did not match the central directory name")]
     LocalFileHeaderNameMismatch,
+    #[error("local file header data-descriptor flag did not match the central directory flag")]
+    LocalFileHeaderDataDescriptorMismatch,
+    #[error("local file header sizes did not match the central directory sizes")]
+    LocalFileHeaderSizeMismatch,
     #[error("Encountered an unexpected header (actual: {0:#x}, expected: {1:#x}).")]
     UnexpectedHeaderError(u32, u32),
 

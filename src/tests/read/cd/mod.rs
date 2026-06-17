@@ -365,3 +365,155 @@ async fn test_nul_filenames_are_rejected() {
         }
     }
 }
+
+fn empty_stored_zip(
+    local_flags: u16,
+    local_compressed_size: u32,
+    local_uncompressed_size: u32,
+    local_extra: &[u8],
+    central_flags: u16,
+    central_compressed_size: u32,
+    central_uncompressed_size: u32,
+) -> Vec<u8> {
+    let mut zip = Vec::new();
+
+    // Local file header for an empty stored entry named "a".
+    zip.extend_from_slice(b"PK\x03\x04");
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&local_flags.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.extend_from_slice(&local_compressed_size.to_le_bytes());
+    zip.extend_from_slice(&local_uncompressed_size.to_le_bytes());
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&(local_extra.len() as u16).to_le_bytes());
+    zip.push(b'a');
+    zip.extend_from_slice(local_extra);
+
+    let central_directory_offset = zip.len() as u32;
+
+    zip.extend_from_slice(b"PK\x01\x02");
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&central_flags.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.extend_from_slice(&central_compressed_size.to_le_bytes());
+    zip.extend_from_slice(&central_uncompressed_size.to_le_bytes());
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.push(b'a');
+
+    let central_directory_size = zip.len() as u32 - central_directory_offset;
+
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&central_directory_size.to_le_bytes());
+    zip.extend_from_slice(&central_directory_offset.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+
+    zip
+}
+
+fn zip64_sizes_extra_field(compressed_size: u64, uncompressed_size: u64) -> Vec<u8> {
+    let mut extra = Vec::new();
+    extra.extend_from_slice(&1_u16.to_le_bytes());
+    extra.extend_from_slice(&16_u16.to_le_bytes());
+    extra.extend_from_slice(&uncompressed_size.to_le_bytes());
+    extra.extend_from_slice(&compressed_size.to_le_bytes());
+    extra
+}
+
+#[tokio::test]
+async fn test_local_header_sizes_must_match_central_directory() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(empty_stored_zip(0, 1, 1, &[], 0, 0, 0)).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local header sizes to be rejected");
+    };
+
+    assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
+}
+
+#[tokio::test]
+async fn test_local_header_descriptor_flag_must_match_central_directory() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(empty_stored_zip(1 << 3, 0, 0, &[], 0, 0, 0)).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local header descriptor flag to be rejected");
+    };
+
+    assert!(matches!(err, ZipError::LocalFileHeaderDataDescriptorMismatch));
+}
+
+#[tokio::test]
+async fn test_each_concrete_local_size_must_match_central_directory() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(empty_stored_zip(0, u32::MAX, 1, &[], 0, 0, 0)).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected the concrete local uncompressed size to be rejected");
+    };
+
+    assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
+}
+
+#[tokio::test]
+async fn test_local_zip64_sizes_must_match_central_directory() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let local_extra = zip64_sizes_extra_field(1, 0);
+    let reader = ZipFileReader::new(empty_stored_zip(0, u32::MAX, u32::MAX, &local_extra, 0, 0, 0)).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local ZIP64 sizes to be rejected");
+    };
+
+    assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
+}
+
+#[tokio::test]
+async fn test_local_zip64_sizes_must_have_overrides() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let reader = ZipFileReader::new(empty_stored_zip(0, u32::MAX, u32::MAX, &[], 0, 0, 0)).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected absent local ZIP64 sizes to be rejected");
+    };
+
+    assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
+}
+
+#[tokio::test]
+async fn test_each_local_zip64_size_must_have_an_override() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    for (compressed_size, uncompressed_size) in [(u32::MAX, 0), (0, u32::MAX)] {
+        let reader =
+            ZipFileReader::new(empty_stored_zip(0, compressed_size, uncompressed_size, &[], 0, 0, 0)).await.unwrap();
+        let Err(err) = reader.reader_without_entry(0).await else {
+            panic!("expected absent local ZIP64 size to be rejected");
+        };
+
+        assert!(matches!(err, ZipError::LocalFileHeaderSizeMismatch));
+    }
+}
