@@ -187,7 +187,10 @@ fn zip64_extended_information_field_from_bytes(
 ) -> ZipResult<Zip64ExtendedInformationExtraField> {
     // slice.take is nightly-only so we'll just use an index to track the current position
     let mut current_idx = 0;
-    let uncompressed_size = if header_uncompressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
+    let uncompressed_size = if header_uncompressed_size == NON_ZIP64_MAX_SIZE {
+        if data.len() < current_idx + 8 {
+            return Err(ZipError::Zip64ExtendedFieldIncomplete);
+        }
         let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
         current_idx += 8;
         val
@@ -195,7 +198,10 @@ fn zip64_extended_information_field_from_bytes(
         None
     };
 
-    let compressed_size = if header_compressed_size == NON_ZIP64_MAX_SIZE && data.len() >= current_idx + 8 {
+    let compressed_size = if header_compressed_size == NON_ZIP64_MAX_SIZE {
+        if data.len() < current_idx + 8 {
+            return Err(ZipError::Zip64ExtendedFieldIncomplete);
+        }
         let val = Some(u64::from_le_bytes(data[current_idx..current_idx + 8].try_into().unwrap()));
         current_idx += 8;
         val

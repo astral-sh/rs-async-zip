@@ -158,7 +158,7 @@ pub(crate) fn get_zip64_extra_field_mut(
     None
 }
 
-fn get_combined_sizes(
+pub(crate) fn get_combined_sizes(
     uncompressed_size: u32,
     compressed_size: u32,
     extra_field: &Option<&Zip64ExtendedInformationExtraField>,
@@ -166,17 +166,13 @@ fn get_combined_sizes(
     let mut uncompressed_size = uncompressed_size as u64;
     let mut compressed_size = compressed_size as u64;
 
-    if let Some(extra_field) = extra_field {
-        if let Some(s) = extra_field.uncompressed_size {
-            if uncompressed_size == NON_ZIP64_MAX_SIZE as u64 {
-                uncompressed_size = s;
-            }
-        }
-        if let Some(s) = extra_field.compressed_size {
-            if compressed_size == NON_ZIP64_MAX_SIZE as u64 {
-                compressed_size = s;
-            }
-        }
+    if uncompressed_size == NON_ZIP64_MAX_SIZE as u64 {
+        uncompressed_size =
+            extra_field.and_then(|field| field.uncompressed_size).ok_or(ZipError::Zip64ExtendedFieldIncomplete)?;
+    }
+    if compressed_size == NON_ZIP64_MAX_SIZE as u64 {
+        compressed_size =
+            extra_field.and_then(|field| field.compressed_size).ok_or(ZipError::Zip64ExtendedFieldIncomplete)?;
     }
 
     Ok((uncompressed_size, compressed_size))

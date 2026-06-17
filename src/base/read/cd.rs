@@ -2,7 +2,7 @@ use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 use crate::base::read::counting::Counting;
 use crate::base::read::io::CombinedCentralDirectoryRecord;
-use crate::base::read::{detect_filename, get_zip64_extra_field, io};
+use crate::base::read::{detect_filename, get_combined_sizes, get_zip64_extra_field, io};
 use crate::error::{Result, ZipError};
 use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, NON_ZIP64_MAX_SIZE, ZIP64_EOCDR_SIGNATURE};
 use crate::spec::header::{
@@ -223,22 +223,8 @@ where
         io::skip_bytes(&mut self.reader, header.file_comment_length.into()).await?;
 
         // Reconcile the compressed size, uncompressed size, and file offset, using ZIP64 if necessary.
-        let compressed_size = if let Some(compressed_size) = zip64_extra_field
-            .and_then(|zip64| zip64.compressed_size)
-            .filter(|_| header.compressed_size == NON_ZIP64_MAX_SIZE)
-        {
-            compressed_size
-        } else {
-            header.compressed_size as u64
-        };
-        let uncompressed_size = if let Some(uncompressed_size) = zip64_extra_field
-            .and_then(|zip64| zip64.uncompressed_size)
-            .filter(|_| header.uncompressed_size == NON_ZIP64_MAX_SIZE)
-        {
-            uncompressed_size
-        } else {
-            header.uncompressed_size as u64
-        };
+        let (uncompressed_size, compressed_size) =
+            get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?;
         let lh_offset = if let Some(lh_offset) = zip64_extra_field
             .and_then(|zip64| zip64.relative_header_offset)
             .filter(|_| header.lh_offset == NON_ZIP64_MAX_SIZE)
