@@ -11,6 +11,7 @@ documentation = "https://docs.rs/astral_async_zip/"
 homepage = "https://github.com/astral-sh/rs-async-zip"
 keywords = ["async", "zip", "archive", "tokio"]
 categories = ["asynchronous", "compression"]
+exclude = ["rustfmt.toml"]
 
 [lib]
 name = "async_zip"
