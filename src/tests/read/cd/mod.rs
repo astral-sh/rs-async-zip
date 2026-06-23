@@ -192,6 +192,18 @@ async fn test_archive_rejects_unsupported_central_directory_extract_versions() {
 
 #[cfg(feature = "deflate")]
 #[tokio::test]
+async fn test_archive_accepts_nonzero_reserved_extract_version_bytes() {
+    use crate::base::read::mem::ZipFileReader;
+
+    let version = 3 << 8 | 20;
+    let data = diff_092_data(version, version);
+
+    let reader = ZipFileReader::new(data).await.unwrap();
+    reader.reader_without_entry(0).await.unwrap();
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
 async fn test_stream_rejects_unsupported_local_extract_versions() {
     use crate::base::read::stream::ZipFileReader;
     use crate::error::ZipError;

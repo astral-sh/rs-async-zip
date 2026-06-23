@@ -6,7 +6,7 @@ use crate::spec::header::{
     CentralDirectoryRecord, EndOfCentralDirectoryHeader, ExtraField, GeneralPurposeFlag, HeaderId, LocalFileHeader,
     Zip64EndOfCentralDirectoryLocator, Zip64EndOfCentralDirectoryRecord,
 };
-use crate::spec::version::MAX_SUPPORTED_EXTRACT_VERSION;
+use crate::spec::version::validate_extract_version;
 
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
@@ -224,9 +224,7 @@ impl LocalFileHeader {
         reader.read_exact(&mut buffer).await?;
         let header = LocalFileHeader::from(buffer);
         validate_general_purpose_flags(header.flags)?;
-        if header.version > MAX_SUPPORTED_EXTRACT_VERSION {
-            return Err(ZipError::FeatureNotSupported("zip file version > 6.3"));
-        }
+        validate_extract_version(header.version, header.compression)?;
         Ok(header)
     }
 }
@@ -245,9 +243,7 @@ impl CentralDirectoryRecord {
         reader.read_exact(&mut buffer).await?;
         let header = CentralDirectoryRecord::from(buffer);
         validate_general_purpose_flags(header.flags)?;
-        if header.v_needed > MAX_SUPPORTED_EXTRACT_VERSION {
-            return Err(ZipError::FeatureNotSupported("zip file version > 6.3"));
-        }
+        validate_extract_version(header.v_needed, header.compression)?;
         Ok(header)
     }
 }
@@ -455,6 +451,9 @@ pub(crate) use array_push;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spec::version::MAX_SUPPORTED_EXTRACT_VERSION;
+
+    const VERSION_WITH_NONZERO_RESERVED_BYTE: u16 = 3 << 8 | 20;
 
     #[tokio::test]
     async fn local_file_header_from_reader_rejects_unsupported_extract_versions() {
@@ -469,6 +468,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_file_header_from_reader_ignores_reserved_extract_version_byte() {
+        let mut bytes = [0; 26];
+        bytes[0..2].copy_from_slice(&VERSION_WITH_NONZERO_RESERVED_BYTE.to_le_bytes());
+        let mut cursor = futures_lite::io::Cursor::new(bytes);
+
+        assert!(LocalFileHeader::from_reader(&mut cursor).await.is_ok());
+    }
+
+    #[tokio::test]
     async fn central_directory_record_from_reader_rejects_unsupported_extract_versions() {
         let mut bytes = [0; 42];
         bytes[2..4].copy_from_slice(&(MAX_SUPPORTED_EXTRACT_VERSION + 1).to_le_bytes());
@@ -478,6 +486,15 @@ mod tests {
             CentralDirectoryRecord::from_reader(&mut cursor).await,
             Err(ZipError::FeatureNotSupported("zip file version > 6.3"))
         ));
+    }
+
+    #[tokio::test]
+    async fn central_directory_record_from_reader_ignores_reserved_extract_version_byte() {
+        let mut bytes = [0; 42];
+        bytes[2..4].copy_from_slice(&VERSION_WITH_NONZERO_RESERVED_BYTE.to_le_bytes());
+        let mut cursor = futures_lite::io::Cursor::new(bytes);
+
+        assert!(CentralDirectoryRecord::from_reader(&mut cursor).await.is_ok());
     }
 
     #[test]

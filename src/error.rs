@@ -76,6 +76,8 @@ pub enum ZipError {
     InvalidEntryDataRange,
     #[error("entry data range ({start:#x}..{end:#x}) overlapped ZIP structure at {boundary:#x}")]
     EntryDataRangeOverlap { start: u64, end: u64, boundary: u64 },
+    #[error("ZIP version {version} is too low for compression method {compression}; expected {required}")]
+    InvalidCompressionVersion { version: u16, required: u16, compression: u16 },
     #[error("Encountered an unexpected header (actual: {0:#x}, expected: {1:#x}).")]
     UnexpectedHeaderError(u32, u32),
 
