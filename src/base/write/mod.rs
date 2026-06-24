@@ -213,7 +213,7 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
             let eocdr_offset = self.writer.offset();
 
             let eocdr = Zip64EndOfCentralDirectoryRecord {
-                size_of_zip64_end_of_cd_record: 44,
+                size_of_zip64_end_of_cd_record: crate::spec::consts::ZIP64_EOCDR_MIN_SIZE,
                 version_made_by: crate::spec::version::as_made_by(),
                 version_needed_to_extract: 46,
                 disk_number: 0,

@@ -2,6 +2,7 @@
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
 use crate::error::{Result, ZipError};
+use crate::spec::consts::ZIP64_EOCDR_MIN_SIZE;
 use crate::spec::header::{
     CentralDirectoryRecord, EndOfCentralDirectoryHeader, ExtraField, GeneralPurposeFlag, HeaderId, LocalFileHeader,
     Zip64EndOfCentralDirectoryLocator, Zip64EndOfCentralDirectoryRecord,
@@ -252,7 +253,11 @@ impl Zip64EndOfCentralDirectoryRecord {
     pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Zip64EndOfCentralDirectoryRecord> {
         let mut buffer: [u8; 52] = [0; 52];
         reader.read_exact(&mut buffer).await?;
-        Ok(Self::from(buffer))
+        let record = Self::from(buffer);
+        if record.size_of_zip64_end_of_cd_record < ZIP64_EOCDR_MIN_SIZE {
+            return Err(ZipError::InvalidZip64EndOfCentralDirectorySize(record.size_of_zip64_end_of_cd_record));
+        }
+        Ok(record)
     }
 
     pub fn as_bytes(&self) -> [u8; 52] {
