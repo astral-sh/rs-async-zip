@@ -24,8 +24,41 @@ impl CombinedCentralDirectoryRecord {
     /// Combine an EOCDR with an optional Zip64EOCDR.
     ///
     /// Fields that are set to their max value in the EOCDR will be overwritten by the contents of
-    /// the corresponding Zip64EOCDR field.
+    /// the corresponding Zip64EOCDR field. Other fields must agree with their Zip64EOCDR
+    /// counterparts so that both records describe the same central directory.
     pub fn combine(eocdr: EndOfCentralDirectoryHeader, zip64eocdr: Zip64EndOfCentralDirectoryRecord) -> Result<Self> {
+        validate_zip64_field("disk number", eocdr.disk_num as u64, u16::MAX as u64, zip64eocdr.disk_number as u64)?;
+        validate_zip64_field(
+            "central directory start disk",
+            eocdr.start_cent_dir_disk as u64,
+            u16::MAX as u64,
+            zip64eocdr.disk_number_start_of_cd as u64,
+        )?;
+        validate_zip64_field(
+            "number of entries on this disk",
+            eocdr.num_of_entries_disk as u64,
+            u16::MAX as u64,
+            zip64eocdr.num_entries_in_directory_on_disk,
+        )?;
+        validate_zip64_field(
+            "number of entries",
+            eocdr.num_of_entries as u64,
+            u16::MAX as u64,
+            zip64eocdr.num_entries_in_directory,
+        )?;
+        validate_zip64_field(
+            "central directory size",
+            eocdr.size_cent_dir as u64,
+            u32::MAX as u64,
+            zip64eocdr.directory_size,
+        )?;
+        validate_zip64_field(
+            "central directory offset",
+            eocdr.cent_dir_offset as u64,
+            u32::MAX as u64,
+            zip64eocdr.offset_of_start_of_directory,
+        )?;
+
         let mut combined = Self::from_eocdr(&eocdr);
         if eocdr.disk_num == u16::MAX {
             combined.disk_number = zip64eocdr.disk_number;
@@ -84,6 +117,14 @@ impl CombinedCentralDirectoryRecord {
 
         Ok(self)
     }
+}
+
+fn validate_zip64_field(field: &'static str, legacy: u64, sentinel: u64, zip64: u64) -> Result<()> {
+    if legacy != sentinel && legacy != zip64 {
+        return Err(ZipError::MismatchedZip64EndOfCentralDirectoryField { field, legacy, zip64 });
+    }
+
+    Ok(())
 }
 
 // An implementation for the case of no zip64EOCDR.

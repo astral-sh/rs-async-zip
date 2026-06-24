@@ -22,7 +22,7 @@ use crate::entry::{StoredZipEntry, ZipEntry};
 use crate::error::{Result, ZipError};
 use crate::file::ZipFile;
 use crate::spec::attribute::AttributeCompatibility;
-use crate::spec::consts::{CDH_LENGTH, LFH_LENGTH};
+use crate::spec::consts::{CDDS_LENGTH, CDDS_SIGNATURE, CDH_LENGTH, LFH_LENGTH};
 use crate::spec::consts::{
     CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH, ZIP64_EOCDL_LENGTH, ZIP64_EOCDR_SIGNATURE,
 };
@@ -111,6 +111,7 @@ where
         zip64,
     )
     .await?;
+    validate_central_directory_binding(&eocdr, central_directory_boundary)?;
     validate_entry_data_ranges(&entries, eocdr.offset_of_start_of_directory, &mut buf).await?;
 
     Ok(ZipFile { entries, comment, zip64 })
@@ -129,6 +130,10 @@ fn validate_zip64_entry_count(zip64_eocdr: &Zip64EndOfCentralDirectoryRecord, zi
     Ok(())
 }
 
+/// Ensures the ZIP64 end record occupies the entire span before its locator.
+///
+/// The record's size field excludes its signature and the size field itself, so both are added when deriving the
+/// locator's expected offset.
 fn validate_zip64_end_record_binding(
     zip64_eocdr: &Zip64EndOfCentralDirectoryRecord,
     zip64_eocdr_offset: u64,
@@ -149,6 +154,23 @@ fn validate_zip64_end_record_binding(
     Ok(())
 }
 
+/// Ensures the declared central-directory span ends exactly where the selected end record begins.
+///
+/// For a ZIP64 archive, `boundary` is the ZIP64 end record; otherwise it is the legacy end record.
+fn validate_central_directory_binding(eocdr: &CombinedCentralDirectoryRecord, boundary: u64) -> Result<()> {
+    let end = eocdr
+        .offset_of_start_of_directory
+        .checked_add(eocdr.directory_size)
+        .ok_or(ZipError::InvalidCentralDirectoryBinding { directory_end: u64::MAX, end_record: boundary })?;
+
+    if end != boundary {
+        return Err(ZipError::InvalidCentralDirectoryBinding { directory_end: end, end_record: boundary });
+    }
+
+    Ok(())
+}
+
+/// Ensures the declared central-directory span does not overlap the selected end record.
 fn validate_central_directory_range(eocdr: &CombinedCentralDirectoryRecord, boundary: u64) -> Result<()> {
     let start = eocdr.offset_of_start_of_directory;
     let end = start.checked_add(eocdr.directory_size).ok_or(ZipError::InvalidCentralDirectoryRange {
@@ -209,8 +231,11 @@ where
     Ok(())
 }
 
+/// Parses exactly the central-directory span declared by the selected end record.
+///
+/// Once the declared entries have been read, only an optional central-directory digital-signature record may remain.
 pub(crate) async fn cd<R>(
-    mut reader: R,
+    reader: R,
     num_of_entries: u64,
     directory_start: u64,
     directory_size: u64,
@@ -223,13 +248,64 @@ where
     let num_of_entries: usize = num_of_entries.try_into().map_err(|_| ZipError::TargetZip64NotSupported)?;
     let mut entries = Vec::with_capacity(cd_entry_capacity(num_of_entries, directory_start)?);
     let mut remaining_directory_size = directory_size;
+    let mut reader = counting::Counting::new(reader);
 
     for _ in 0..num_of_entries {
         let entry = cd_record(&mut reader, zip64, &mut remaining_directory_size, claimed_entries).await?;
         entries.push(entry);
     }
 
+    consume_central_directory_digital_signature(&mut reader, directory_size).await?;
+
+    let actual = reader.bytes_read();
+    if actual != directory_size {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual });
+    }
+
     Ok(entries)
+}
+
+/// Consumes an optional digital-signature record that exactly fills the unparsed central-directory span.
+///
+/// Returning without reading is valid only when the declared entries already consumed the full span. Other trailing
+/// bytes, truncated records, and length claims that do not reach `directory_size` are rejected.
+async fn consume_central_directory_digital_signature<R>(
+    reader: &mut counting::Counting<R>,
+    directory_size: u64,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+{
+    let actual = reader.bytes_read();
+    if actual >= directory_size {
+        return Ok(());
+    }
+
+    let fixed_length = (SIGNATURE_LENGTH + CDDS_LENGTH) as u64;
+    if directory_size - actual < fixed_length {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual });
+    }
+
+    let mut signature = [0; SIGNATURE_LENGTH];
+    reader.read_exact(&mut signature).await?;
+    if u32::from_le_bytes(signature) != CDDS_SIGNATURE {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual });
+    }
+
+    let mut length = [0; CDDS_LENGTH];
+    reader.read_exact(&mut length).await?;
+    let signature_length = u16::from_le_bytes(length) as u64;
+    let Some(record_end) =
+        actual.checked_add(fixed_length).and_then(|record_end| record_end.checked_add(signature_length))
+    else {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual: u64::MAX });
+    };
+    if record_end != directory_size {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual: record_end });
+    }
+
+    io::skip_bytes(reader, signature_length).await?;
+    Ok(())
 }
 
 pub(crate) fn get_zip64_extra_field(extra_fields: &[ExtraField]) -> Option<&Zip64ExtendedInformationExtraField> {
