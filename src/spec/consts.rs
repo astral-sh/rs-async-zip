@@ -17,6 +17,14 @@ pub const CDH_SIGNATURE: u32 = 0x2014b50;
 #[allow(dead_code)]
 pub const CDH_LENGTH: usize = 42;
 
+// Central directory digital signature record constants
+//
+// APPNOTE section 4.3.13
+pub const CDDS_SIGNATURE: u32 = 0x05054b50;
+
+/// The fixed length of the digital signature record, excluding its signature.
+pub const CDDS_LENGTH: usize = 2;
+
 // End of central directory record constants
 //
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#4316

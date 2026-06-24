@@ -324,11 +324,15 @@ async fn test_streamed_zip64_central_directory_size_must_match_end_record() {
     use crate::base::read::cd::{CentralDirectoryReader, Entry};
     use crate::base::read::stream::ZipFileReader;
     use crate::error::ZipError;
-    use crate::spec::consts::ZIP64_EOCDR_SIGNATURE;
+    use crate::spec::consts::{EOCDR_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
 
     let mut data = include_bytes!("../zip64/zip64.zip").to_vec();
     let zip64_eocdr_offset = data.windows(4).position(|bytes| bytes == ZIP64_EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    data[zip64_eocdr_offset + 24..zip64_eocdr_offset + 40].fill(0);
     data[zip64_eocdr_offset + 40..zip64_eocdr_offset + 48].copy_from_slice(&0_u64.to_le_bytes());
+    let eocdr_offset = data.windows(4).position(|bytes| bytes == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    data[eocdr_offset + 8..eocdr_offset + 12].fill(0xff);
+    data[eocdr_offset + 12..eocdr_offset + 16].copy_from_slice(&u32::MAX.to_le_bytes());
 
     let mut cursor = Cursor::new(data);
     let mut zip = ZipFileReader::new(&mut cursor);
@@ -725,6 +729,94 @@ async fn test_directory_range_must_fit_before_end_record() {
 }
 
 #[tokio::test]
+async fn test_bound_directory_span_must_be_fully_parsed() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE};
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut inner = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut inner);
+    writer.write_entry_whole(ZipEntryBuilder::new("inner".into(), Compression::Stored), b"B").await.unwrap();
+    writer.close().await.unwrap();
+
+    let mut data = inner.clone();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("outer".into(), Compression::Stored), b"A").await.unwrap();
+    writer.close().await.unwrap();
+
+    let inner_cd = data.windows(4).position(|window| window == CDH_SIGNATURE.to_le_bytes()).unwrap();
+    let selected_eocdr = data.windows(4).rposition(|window| window == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    let directory_size = (selected_eocdr - inner_cd) as u32;
+    data[selected_eocdr + 12..selected_eocdr + 16].copy_from_slice(&directory_size.to_le_bytes());
+    data[selected_eocdr + 16..selected_eocdr + 20].copy_from_slice(&(inner_cd as u32).to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected unparsed bytes in a bound directory span to fail");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectorySize { expected, actual } if expected > actual));
+}
+
+#[tokio::test]
+async fn test_directory_allows_digital_signature_record() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::spec::consts::{CDDS_SIGNATURE, EOCDR_SIGNATURE};
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("signed".into(), Compression::Stored), b"A").await.unwrap();
+    writer.close().await.unwrap();
+
+    let eocdr = data.windows(4).position(|window| window == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    let signature_data = b"signature";
+    let mut signature_record = CDDS_SIGNATURE.to_le_bytes().to_vec();
+    signature_record.extend_from_slice(&(signature_data.len() as u16).to_le_bytes());
+    signature_record.extend_from_slice(signature_data);
+    let signature_record_len = signature_record.len();
+    data.splice(eocdr..eocdr, signature_record);
+
+    let eocdr = eocdr + signature_record_len;
+    let directory_size = u32::from_le_bytes(data[eocdr + 12..eocdr + 16].try_into().unwrap());
+    data[eocdr + 12..eocdr + 16].copy_from_slice(&(directory_size + signature_record_len as u32).to_le_bytes());
+
+    let reader = ZipFileReader::new(data).await.unwrap();
+    assert_eq!(reader.file().entries().len(), 1);
+}
+
+#[tokio::test]
+async fn test_digital_signature_must_fill_declared_directory_span() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::spec::consts::{CDDS_SIGNATURE, EOCDR_SIGNATURE};
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("signed".into(), Compression::Stored), b"A").await.unwrap();
+    writer.close().await.unwrap();
+
+    let eocdr = data.windows(4).position(|window| window == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    let mut signature_record = CDDS_SIGNATURE.to_le_bytes().to_vec();
+    signature_record.extend_from_slice(&2_u16.to_le_bytes());
+    signature_record.extend_from_slice(b"x");
+    let signature_record_len = signature_record.len();
+    data.splice(eocdr..eocdr, signature_record);
+
+    let eocdr = eocdr + signature_record_len;
+    let directory_size = u32::from_le_bytes(data[eocdr + 12..eocdr + 16].try_into().unwrap());
+    data[eocdr + 12..eocdr + 16].copy_from_slice(&(directory_size + signature_record_len as u32).to_le_bytes());
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected an incorrectly sized digital signature to fail");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectorySize { expected, actual } if actual > expected));
+}
+
+#[tokio::test]
 async fn test_zip64_range_boundary_must_be_an_adjacent_end_record() {
     use crate::base::read::mem::ZipFileReader;
     use crate::base::write::ZipFileWriter;
@@ -804,7 +896,6 @@ async fn test_zip64_locator_requires_end_record_signature() {
     };
     assert!(matches!(err, ZipError::UnexpectedHeaderError(0, ZIP64_EOCDR_SIGNATURE)));
 }
-
 #[tokio::test]
 async fn test_zip64_end_record_size_must_cover_fixed_fields() {
     use crate::base::read::mem::ZipFileReader;
@@ -822,4 +913,122 @@ async fn test_zip64_end_record_size_must_cover_fixed_fields() {
         panic!("expected undersized ZIP64 end record to fail");
     };
     assert!(matches!(err, ZipError::InvalidZip64EndOfCentralDirectorySize(43)));
+}
+
+#[tokio::test]
+async fn test_directory_must_bind_to_selected_end_record() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let mut inner = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut inner);
+    writer.write_entry_whole(ZipEntryBuilder::new("inner".into(), Compression::Stored), b"B").await.unwrap();
+    writer.close().await.unwrap();
+
+    let mut data = inner.clone();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer.write_entry_whole(ZipEntryBuilder::new("outer".into(), Compression::Stored), b"A").await.unwrap();
+    writer.close().await.unwrap();
+
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("expected ambiguous central directory binding to fail");
+    };
+    assert!(matches!(err, ZipError::InvalidCentralDirectoryBinding { .. }));
+}
+
+#[tokio::test]
+async fn repro_conflicting_zip64_and_legacy_central_directories() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::spec::consts::{EOCDR_SIGNATURE, ZIP64_EOCDL_SIGNATURE, ZIP64_EOCDR_SIGNATURE};
+    use crate::spec::header::{Zip64EndOfCentralDirectoryLocator, Zip64EndOfCentralDirectoryRecord};
+    use crate::{Compression, ZipEntryBuilder};
+
+    // First create an ordinary archive whose legacy EOCD describes one entry.
+    let mut data = Vec::new();
+    let mut writer = ZipFileWriter::new(&mut data);
+    writer
+        .write_entry_whole(ZipEntryBuilder::new("visible.txt".into(), Compression::Stored), b"visible")
+        .await
+        .unwrap();
+    writer.close().await.unwrap();
+
+    let legacy_eocdr_offset =
+        data.windows(4).rposition(|window| window == EOCDR_SIGNATURE.to_le_bytes()).expect("legacy EOCD record");
+    let zip64_eocdr_offset = legacy_eocdr_offset as u64;
+
+    // Insert a valid ZIP64 end record immediately before that EOCD, but make it describe an
+    // empty directory. Both the legacy and ZIP64 directory spans end at this record, so the new
+    // binding check alone cannot distinguish them.
+    let mut zip64_trailer = ZIP64_EOCDR_SIGNATURE.to_le_bytes().to_vec();
+    zip64_trailer.extend_from_slice(
+        &Zip64EndOfCentralDirectoryRecord {
+            size_of_zip64_end_of_cd_record: 44,
+            version_made_by: 45,
+            version_needed_to_extract: 45,
+            disk_number: 0,
+            disk_number_start_of_cd: 0,
+            num_entries_in_directory_on_disk: 0,
+            num_entries_in_directory: 0,
+            directory_size: 0,
+            offset_of_start_of_directory: zip64_eocdr_offset,
+        }
+        .as_bytes(),
+    );
+    zip64_trailer.extend_from_slice(&ZIP64_EOCDL_SIGNATURE.to_le_bytes());
+    zip64_trailer.extend_from_slice(
+        &Zip64EndOfCentralDirectoryLocator {
+            number_of_disk_with_start_of_zip64_end_of_central_directory: 0,
+            relative_offset: zip64_eocdr_offset,
+            total_number_of_disks: 1,
+        }
+        .as_bytes(),
+    );
+    data.splice(legacy_eocdr_offset..legacy_eocdr_offset, zip64_trailer);
+
+    // A unique-directory parser must reject the disagreement instead of choosing one record's
+    // view of the archive.
+    let Err(err) = ZipFileReader::new(data).await else {
+        panic!("conflicting ZIP64 and legacy central-directory metadata was accepted");
+    };
+    assert!(matches!(err, ZipError::MismatchedZip64EndOfCentralDirectoryField { .. }));
+}
+
+#[tokio::test]
+async fn test_each_concrete_legacy_end_field_must_match_zip64() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+    use crate::spec::consts::ZIP64_EOCDR_SIGNATURE;
+
+    // Offsets are relative to the start of the ZIP64 end-record signature. Each replacement
+    // differs from the concrete value in the legacy EOCD while remaining cheap to parse.
+    let mismatches = [
+        ("disk number", 16, 4, 1_u64),
+        ("central directory start disk", 20, 4, 1),
+        ("number of entries on this disk", 24, 8, 0),
+        ("number of entries", 32, 8, 0),
+        ("central directory size", 40, 8, 0),
+        ("central directory offset", 48, 8, 0),
+    ];
+
+    for (expected_field, field_offset, field_length, value) in mismatches {
+        let mut data = include_bytes!("../zip64/zip64.zip").to_vec();
+        let record_offset = data
+            .windows(4)
+            .position(|window| window == ZIP64_EOCDR_SIGNATURE.to_le_bytes())
+            .expect("ZIP64 EOCD record");
+        data[record_offset + field_offset..record_offset + field_offset + field_length]
+            .copy_from_slice(&value.to_le_bytes()[..field_length]);
+
+        let Err(err) = ZipFileReader::new(data).await else {
+            panic!("mismatched {expected_field} was accepted");
+        };
+        assert!(
+            matches!(err, ZipError::MismatchedZip64EndOfCentralDirectoryField { field, .. } if field == expected_field),
+            "unexpected error for {expected_field}: {err:?}"
+        );
+    }
 }
