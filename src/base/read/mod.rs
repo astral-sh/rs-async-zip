@@ -23,7 +23,9 @@ use crate::error::{Result, ZipError};
 use crate::file::ZipFile;
 use crate::spec::attribute::AttributeCompatibility;
 use crate::spec::consts::{CDH_LENGTH, LFH_LENGTH};
-use crate::spec::consts::{CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH, ZIP64_EOCDL_LENGTH};
+use crate::spec::consts::{
+    CDH_SIGNATURE, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH, ZIP64_EOCDL_LENGTH, ZIP64_EOCDR_SIGNATURE,
+};
 use crate::spec::header::InfoZipUnicodeCommentExtraField;
 use crate::spec::header::InfoZipUnicodePathExtraField;
 use crate::spec::header::{
@@ -48,6 +50,7 @@ where
 {
     // First find and parse the EOCDR.
     let eocdr_offset = crate::base::read::io::locator::eocdr(&mut reader).await?;
+    let eocdr_record_offset = eocdr_offset.saturating_sub(SIGNATURE_LENGTH as u64);
 
     reader.seek(SeekFrom::Start(eocdr_offset)).await?;
     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut reader).await?;
@@ -56,23 +59,35 @@ where
 
     // Check the 20 bytes before the EOCDR for the Zip64 EOCDL, plus an extra 4 bytes because the offset
     // does not include the signature. If the ECODL exists we are dealing with a Zip64 file.
-    let (eocdr, zip64) = match eocdr_offset.checked_sub(ZIP64_EOCDL_LENGTH + SIGNATURE_LENGTH as u64) {
-        None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false),
-        Some(offset) => {
-            reader.seek(SeekFrom::Start(offset)).await?;
-            let zip64_locator = Zip64EndOfCentralDirectoryLocator::try_from_reader(&mut reader).await?;
+    let (eocdr, zip64, central_directory_boundary) =
+        match eocdr_offset.checked_sub(ZIP64_EOCDL_LENGTH + SIGNATURE_LENGTH as u64) {
+            None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false, eocdr_record_offset),
+            Some(offset) => {
+                reader.seek(SeekFrom::Start(offset)).await?;
+                let zip64_locator = Zip64EndOfCentralDirectoryLocator::try_from_reader(&mut reader).await?;
 
-            match zip64_locator {
-                Some(locator) => {
-                    reader.seek(SeekFrom::Start(locator.relative_offset + SIGNATURE_LENGTH as u64)).await?;
-                    let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut reader).await?;
-                    validate_zip64_entry_count(&zip64_eocdr, locator.relative_offset)?;
-                    (CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr)?, true)
+                match zip64_locator {
+                    Some(locator) => {
+                        reader.seek(SeekFrom::Start(locator.relative_offset)).await?;
+                        let signature = {
+                            let mut buffer = [0; SIGNATURE_LENGTH];
+                            reader.read_exact(&mut buffer).await?;
+                            u32::from_le_bytes(buffer)
+                        };
+                        if signature != ZIP64_EOCDR_SIGNATURE {
+                            return Err(ZipError::UnexpectedHeaderError(signature, ZIP64_EOCDR_SIGNATURE));
+                        }
+                        let zip64_eocdr = Zip64EndOfCentralDirectoryRecord::from_reader(&mut reader).await?;
+                        validate_zip64_end_record_binding(&zip64_eocdr, locator.relative_offset, offset)?;
+                        validate_zip64_entry_count(&zip64_eocdr, locator.relative_offset)?;
+                        (CombinedCentralDirectoryRecord::combine(eocdr, zip64_eocdr)?, true, locator.relative_offset)
+                    }
+                    None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false, eocdr_record_offset),
                 }
-                None => (CombinedCentralDirectoryRecord::try_from(&eocdr)?, false),
             }
-        }
-    };
+        };
+
+    validate_central_directory_range(&eocdr, central_directory_boundary)?;
 
     // Outdated feature so unlikely to ever make it into this crate.
     if eocdr.disk_number != eocdr.disk_number_start_of_cd
@@ -109,6 +124,41 @@ fn validate_zip64_entry_count(zip64_eocdr: &Zip64EndOfCentralDirectoryRecord, zi
 
     if zip64_eocdr_offset < minimum_central_directory_end {
         return Err(ZipError::InvalidCentralDirectoryEntryCount { entries: zip64_eocdr.num_entries_in_directory });
+    }
+
+    Ok(())
+}
+
+fn validate_zip64_end_record_binding(
+    zip64_eocdr: &Zip64EndOfCentralDirectoryRecord,
+    zip64_eocdr_offset: u64,
+    zip64_locator_offset: u64,
+) -> Result<()> {
+    let expected_locator_offset = zip64_eocdr_offset
+        .checked_add(SIGNATURE_LENGTH as u64 + 8)
+        .and_then(|offset| offset.checked_add(zip64_eocdr.size_of_zip64_end_of_cd_record))
+        .ok_or(ZipError::InvalidZip64EndOfCentralDirectoryLocatorOffset(u64::MAX, zip64_locator_offset))?;
+
+    if expected_locator_offset != zip64_locator_offset {
+        return Err(ZipError::InvalidZip64EndOfCentralDirectoryLocatorOffset(
+            expected_locator_offset,
+            zip64_locator_offset,
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_central_directory_range(eocdr: &CombinedCentralDirectoryRecord, boundary: u64) -> Result<()> {
+    let start = eocdr.offset_of_start_of_directory;
+    let end = start.checked_add(eocdr.directory_size).ok_or(ZipError::InvalidCentralDirectoryRange {
+        start,
+        end: u64::MAX,
+        boundary,
+    })?;
+
+    if end > boundary {
+        return Err(ZipError::InvalidCentralDirectoryRange { start, end, boundary });
     }
 
     Ok(())

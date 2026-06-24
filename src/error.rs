@@ -92,12 +92,16 @@ pub enum ZipError {
     InvalidEndOfCentralDirectoryOffset(u64, u64),
     #[error("the central directory size ({expected:#x}) did not match the observed byte span ({actual:#x})")]
     InvalidCentralDirectorySize { expected: u64, actual: u64 },
+    #[error("the central directory range ({start:#x}..{end:#x}) extends past the end record offset ({boundary:#x})")]
+    InvalidCentralDirectoryRange { start: u64, end: u64, boundary: u64 },
     #[error("the central directory entry count ({entries}) exceeds the available central directory range")]
     InvalidCentralDirectoryEntryCount { entries: u64 },
     #[error("the zip64 end of central directory locator was not found")]
     MissingZip64EndOfCentralDirectoryLocator,
     #[error("the zip64 end of central directory locator offset ({0:#x}) did not match the actual offset ({1:#x})")]
     InvalidZip64EndOfCentralDirectoryLocatorOffset(u64, u64),
+    #[error("the zip64 end of central directory record size ({0}) was smaller than the minimum 44 bytes")]
+    InvalidZip64EndOfCentralDirectorySize(u64),
     #[error(
         "zip64 extended information field was too long: expected {expected} bytes, but {actual} bytes were provided"
     )]
