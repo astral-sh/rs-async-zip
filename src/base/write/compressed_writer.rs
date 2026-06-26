@@ -30,7 +30,15 @@ pub enum CompressedAsyncWriter<'b, W: AsyncWrite + Unpin> {
 }
 
 impl<'b, W: AsyncWrite + Unpin> CompressedAsyncWriter<'b, W> {
-    pub fn from_raw(writer: &'b mut AsyncOffsetWriter<W>, compression: Compression) -> Result<Self> {
+    pub fn from_raw(
+        writer: &'b mut AsyncOffsetWriter<W>,
+        compression: Compression,
+        precompressed: bool,
+    ) -> Result<Self> {
+        if precompressed {
+            return Ok(CompressedAsyncWriter::Stored(ShutdownIgnoredWriter(writer)));
+        }
+
         Ok(match compression {
             Compression::Stored => CompressedAsyncWriter::Stored(ShutdownIgnoredWriter(writer)),
             #[cfg(feature = "deflate")]

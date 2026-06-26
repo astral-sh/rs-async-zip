@@ -71,7 +71,8 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
 
         let cd_entries = &mut writer.cd_entries;
         let is_zip64 = &mut writer.is_zip64;
-        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, entry.compression())?);
+        let writer =
+            AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, entry.compression(), false)?);
 
         Ok(EntrySeekableWriter {
             writer,

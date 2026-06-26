@@ -57,6 +57,9 @@ pub(crate) mod io;
 
 pub use entry_seekable::EntrySeekableWriter;
 pub use entry_stream::EntryStreamWriter;
+#[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
+pub use entry_whole::compress;
+pub use entry_whole::crc32;
 
 #[cfg(feature = "tokio")]
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -128,11 +131,30 @@ impl<W: AsyncWrite + Unpin> ZipFileWriter<W> {
         EntryWholeWriter::from_raw(self, entry.into(), data).write().await
     }
 
+    /// Write a new ZIP entry whose data is already compressed.
+    ///
+    /// The entry's compression method, CRC32 checksum, and uncompressed size must
+    /// describe `data`. The compressed size is derived from `data`.
+    pub async fn write_entry_whole_precompressed<E: Into<ZipEntry>>(&mut self, entry: E, data: &[u8]) -> Result<()> {
+        EntryWholeWriter::from_precompressed(self, entry.into(), data).write().await
+    }
+
     /// Write an entry of unknown size and data via streaming (ie. using a data descriptor).
     /// The generated Local File Header will be invalid, with no compressed size, uncompressed size,
     /// and a null CRC. This might cause problems with the destination reader.
     pub async fn write_entry_stream<E: Into<ZipEntry>>(&mut self, entry: E) -> Result<EntryStreamWriter<'_, W>> {
         EntryStreamWriter::from_raw(self, entry.into()).await
+    }
+
+    /// Stream a ZIP entry whose bytes are already compressed.
+    ///
+    /// The entry's compression method, CRC32 checksum, and uncompressed size must
+    /// be set before writing. The compressed size is measured as bytes are written.
+    pub async fn write_entry_stream_precompressed<E: Into<ZipEntry>>(
+        &mut self,
+        entry: E,
+    ) -> Result<EntryStreamWriter<'_, W>> {
+        EntryStreamWriter::from_raw_precompressed(self, entry.into()).await
     }
 
     /// Write an entry of unknown size and data via streaming to a seekable output.
