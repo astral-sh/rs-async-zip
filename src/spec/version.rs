@@ -27,12 +27,14 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
     }
 }
 
-/// Validates the minimum extraction version for Deflate64 entries and does
-/// nothing for all other compression methods.
+/// Validates the minimum extraction version for Deflate64 entries.
 ///
 /// Deflate64 decoding can stop making progress when an entry declares a
-/// contradictory legacy version. Other compression methods are not validated
-/// here because writers in the wild use lower advisory versions for them.
+/// contradictory legacy version.
+/// 
+/// Does not perform validation for other compression methods. A previous
+/// attempt to do so for Deflate was blocked by prevalent use of legacy
+/// versions, e.g., in GitHub source archive zips.
 fn validate_deflate64_version(version: u16, compression: u16) -> Result<()> {
     if compression != 9 {
         return Ok(());
