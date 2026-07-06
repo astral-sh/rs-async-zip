@@ -27,7 +27,19 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
     }
 }
 
-pub(crate) fn validate_compression_version(version: u16, compression: u16) -> Result<()> {
+/// Validates the minimum extraction version for Deflate64 entries.
+///
+/// Deflate64 decoding can stop making progress when an entry declares a
+/// contradictory legacy version.
+///
+/// Does not perform validation for other compression methods. A previous
+/// attempt to do so for Deflate was blocked by prevalent use of legacy
+/// versions, e.g., in GitHub source archive zips.
+fn validate_deflate64_version(version: u16, compression: u16) -> Result<()> {
+    if compression != 9 {
+        return Ok(());
+    }
+
     let required = minimum_version_needed_for_method(compression);
     if version < required {
         return Err(ZipError::InvalidCompressionVersion { version, required, compression });
@@ -44,7 +56,7 @@ pub(crate) fn validate_extract_version(raw_version: u16, compression: u16) -> Re
         return Err(ZipError::FeatureNotSupported("zip file version > 6.3"));
     }
 
-    validate_compression_version(version, compression)
+    validate_deflate64_version(version, compression)
 }
 
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#443
