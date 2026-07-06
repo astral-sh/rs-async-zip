@@ -31,7 +31,7 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
 ///
 /// Deflate64 decoding can stop making progress when an entry declares a
 /// contradictory legacy version.
-/// 
+///
 /// Does not perform validation for other compression methods. A previous
 /// attempt to do so for Deflate was blocked by prevalent use of legacy
 /// versions, e.g., in GitHub source archive zips.
