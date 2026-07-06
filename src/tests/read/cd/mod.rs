@@ -614,7 +614,8 @@ async fn test_entry_body_must_not_overlap_later_local_header() {
         data.windows(4).position(|window| window == b"PK\x01\x02").expect("expected central directory");
     data[central_directory + 20..central_directory + 24].copy_from_slice(&1_u32.to_le_bytes());
 
-    let Err(err) = ZipFileReader::new(data).await else {
+    let zip = ZipFileReader::new(data).await.expect("central directory should be valid");
+    let Err(err) = zip.reader_without_entry(0).await else {
         panic!("expected overlapping entry range");
     };
     assert!(matches!(err, ZipError::EntryDataRangeOverlap { .. }));
@@ -686,7 +687,8 @@ async fn test_local_extra_field_must_not_overlap_later_local_header() {
     // Consume the following local file header signature as a local-only extra field.
     data[28..30].copy_from_slice(&4_u16.to_le_bytes());
 
-    let Err(err) = ZipFileReader::new(data).await else {
+    let zip = ZipFileReader::new(data).await.expect("central directory should be valid");
+    let Err(err) = zip.reader_without_entry(0).await else {
         panic!("expected overlapping local header range");
     };
     assert!(matches!(err, ZipError::EntryDataRangeOverlap { .. }));
@@ -710,6 +712,9 @@ async fn test_many_entry_ranges_validate() {
 
     let reader = ZipFileReader::new(data).await.unwrap();
     assert_eq!(reader.file().entries().len(), 1_024);
+    for index in 0..1_024 {
+        reader.reader_without_entry(index).await.unwrap();
+    }
 }
 
 #[tokio::test]
