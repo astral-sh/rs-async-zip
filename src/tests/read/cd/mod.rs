@@ -101,6 +101,29 @@ async fn test_local_header_name_must_match_central_directory_name() {
 }
 
 #[tokio::test]
+async fn test_long_local_header_name_must_match_central_directory_name() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder};
+
+    let filename = "a".repeat(300);
+    let mut writer = ZipFileWriter::new(Vec::new());
+    writer.write_entry_whole(ZipEntryBuilder::new(filename.into(), Compression::Stored), b"").await.unwrap();
+    let mut data = writer.close().await.unwrap();
+
+    let reader = ZipFileReader::new(data.clone()).await.unwrap();
+    reader.reader_without_entry(0).await.unwrap();
+
+    data[30 + 260] = b'b';
+    let reader = ZipFileReader::new(data).await.unwrap();
+    let Err(err) = reader.reader_without_entry(0).await else {
+        panic!("expected local header name mismatch");
+    };
+    assert!(matches!(err, ZipError::LocalFileHeaderNameMismatch));
+}
+
+#[tokio::test]
 async fn test_strong_encryption_entries_are_rejected() {
     use crate::base::read::mem::ZipFileReader;
     use crate::error::ZipError;
