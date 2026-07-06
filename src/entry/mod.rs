@@ -12,7 +12,7 @@ use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
-    consts::{LFH_SIGNATURE, NON_ZIP64_MAX_SIZE},
+    consts::{LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH},
     header::{ExtraField, LocalFileHeader},
     parse::parse_extra_fields,
     Compression,
@@ -182,6 +182,7 @@ pub struct StoredZipEntry {
     // pub(crate) general_purpose_flag: GeneralPurposeFlag,
     pub(crate) file_offset: u64,
     pub(crate) header_size: u64,
+    pub(crate) data_end_boundary: u64,
 }
 
 impl StoredZipEntry {
@@ -217,6 +218,21 @@ impl StoredZipEntry {
 
         // Read and validate the local file header's trailing data.
         let header = LocalFileHeader::from_reader(&mut reader).await?;
+        let data_start = self
+            .file_offset
+            .checked_add((SIGNATURE_LENGTH + LFH_LENGTH) as u64)
+            .and_then(|offset| offset.checked_add(header.file_name_length as u64))
+            .and_then(|offset| offset.checked_add(header.extra_field_length as u64))
+            .ok_or(ZipError::InvalidEntryDataRange)?;
+        let data_end = data_start.checked_add(self.entry.compressed_size()).ok_or(ZipError::InvalidEntryDataRange)?;
+        if data_end > self.data_end_boundary {
+            return Err(ZipError::EntryDataRangeOverlap {
+                start: data_start,
+                end: data_end,
+                boundary: self.data_end_boundary,
+            });
+        }
+
         if header.flags.data_descriptor != self.entry.data_descriptor {
             return Err(ZipError::LocalFileHeaderDataDescriptorMismatch);
         }

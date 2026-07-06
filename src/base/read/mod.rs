@@ -103,7 +103,7 @@ where
     // Because `eocdr.offset_of_start_of_directory` is a u64, we use MAX_CD_BUFFER_SIZE to prevent very large buffer sizes.
     let mut buf =
         BufReader::with_capacity(std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE), reader);
-    let entries = crate::base::read::cd(
+    let mut entries = crate::base::read::cd(
         &mut buf,
         eocdr.num_entries_in_directory,
         eocdr.offset_of_start_of_directory,
@@ -112,7 +112,7 @@ where
     )
     .await?;
     validate_central_directory_binding(&eocdr, central_directory_boundary)?;
-    validate_entry_data_ranges(&entries, eocdr.offset_of_start_of_directory, &mut buf).await?;
+    assign_entry_data_boundaries(&mut entries, eocdr.offset_of_start_of_directory);
 
     Ok(ZipFile { entries, comment, zip64 })
 }
@@ -197,38 +197,17 @@ fn cd_entry_capacity(num_of_entries: usize, directory_start: u64) -> Result<usiz
     Ok(capacity)
 }
 
-async fn validate_entry_data_ranges<R>(entries: &[StoredZipEntry], directory_start: u64, reader: &mut R) -> Result<()>
-where
-    R: AsyncRead + AsyncSeek + Unpin,
-{
+fn assign_entry_data_boundaries(entries: &mut [StoredZipEntry], directory_start: u64) {
     let mut local_headers: Vec<_> = entries.iter().map(|entry| entry.file_offset).collect();
     local_headers.sort_unstable();
 
     for entry in entries {
-        let header_offset =
-            entry.file_offset.checked_add(SIGNATURE_LENGTH as u64).ok_or(ZipError::InvalidEntryDataRange)?;
-        reader.seek(SeekFrom::Start(header_offset)).await?;
-        let mut header = [0; LFH_LENGTH];
-        reader.read_exact(&mut header).await?;
-        let header = LocalFileHeader::from(header);
-        let data_start = header_offset
-            .checked_add(LFH_LENGTH as u64)
-            .and_then(|offset| offset.checked_add(header.file_name_length as u64))
-            .and_then(|offset| offset.checked_add(header.extra_field_length as u64))
-            .ok_or(ZipError::InvalidEntryDataRange)?;
-        let data_end = data_start.checked_add(entry.compressed_size()).ok_or(ZipError::InvalidEntryDataRange)?;
-        let boundary = local_headers
+        entry.data_end_boundary = local_headers
             .get(local_headers.partition_point(|offset| *offset <= entry.file_offset))
             .copied()
             .unwrap_or(directory_start)
             .min(directory_start);
-
-        if data_end > boundary {
-            return Err(ZipError::EntryDataRangeOverlap { start: data_start, end: data_end, boundary });
-        }
     }
-
-    Ok(())
 }
 
 /// Parses exactly the central-directory span declared by the selected end record.
@@ -429,7 +408,7 @@ where
         file_offset,
     };
 
-    Ok(StoredZipEntry { entry, file_offset, header_size: header_size + trailing_size })
+    Ok(StoredZipEntry { entry, file_offset, header_size: header_size + trailing_size, data_end_boundary: u64::MAX })
 }
 
 pub(crate) async fn lfh<R>(mut reader: R, file_offset: u64) -> Result<Option<ZipEntry>>
