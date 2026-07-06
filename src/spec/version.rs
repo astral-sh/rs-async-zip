@@ -27,24 +27,6 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
     }
 }
 
-pub(crate) fn validate_compression_version(version: u16, compression: u16) -> Result<()> {
-    // Deflate64 requires version 2.1. In particular, attempting to decode a
-    // Deflate64 entry that declares version 0.1 can stop making progress.
-    // Other writers in the wild, including GitHub's source archive writer,
-    // use version 1.0 for ordinary Deflate entries, so do not enforce their
-    // advisory minimums while reading.
-    if compression != 9 {
-        return Ok(());
-    }
-
-    let required = minimum_version_needed_for_method(compression);
-    if version < required {
-        return Err(ZipError::InvalidCompressionVersion { version, required, compression });
-    }
-
-    Ok(())
-}
-
 pub(crate) fn validate_extract_version(raw_version: u16, compression: u16) -> Result<()> {
     // The extraction version occupies the low byte. The high byte is reserved,
     // but some writers populate it as though this were a "version made by" field.
@@ -53,7 +35,19 @@ pub(crate) fn validate_extract_version(raw_version: u16, compression: u16) -> Re
         return Err(ZipError::FeatureNotSupported("zip file version > 6.3"));
     }
 
-    validate_compression_version(version, compression)
+    // Deflate64 requires version 2.1. In particular, attempting to decode a
+    // Deflate64 entry that declares version 0.1 can stop making progress.
+    // Other writers in the wild, including GitHub's source archive writer,
+    // use version 1.0 for ordinary Deflate entries, so do not enforce their
+    // advisory minimums while reading.
+    if compression == 9 {
+        let required = minimum_version_needed_for_method(compression);
+        if version < required {
+            return Err(ZipError::InvalidCompressionVersion { version, required, compression });
+        }
+    }
+
+    Ok(())
 }
 
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#443
