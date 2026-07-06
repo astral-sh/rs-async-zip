@@ -365,13 +365,19 @@ async fn test_nul_filenames_are_rejected() {
     let Err(err) = mem::ZipFileReader::new(data.clone()).await else {
         panic!("expected an embedded NUL filename to be rejected");
     };
-    assert!(matches!(err, ZipError::FileNameContainsNul));
+    let ZipError::FileNameContainsNul { filename } = err else {
+        panic!("expected an embedded NUL filename error");
+    };
+    assert!(filename.contains(&0));
 
     let mut zip = ZipFileReader::new(Cursor::new(data));
     loop {
         match zip.next_with_entry().await {
             Err(err) => {
-                assert!(matches!(err, ZipError::FileNameContainsNul));
+                let ZipError::FileNameContainsNul { filename } = err else {
+                    panic!("expected an embedded NUL filename error");
+                };
+                assert!(filename.contains(&0));
                 break;
             }
             Ok(Some(entry)) => {

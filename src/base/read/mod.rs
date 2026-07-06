@@ -534,10 +534,13 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
         }
         _ => None,
     });
-    if basic.contains(&0)
-        || unicode_extra.as_ref().is_some_and(|value| value.as_ref().is_ok_and(|value| value.contains('\0')))
-    {
-        return Err(ZipError::FileNameContainsNul);
+    if basic.contains(&0) {
+        return Err(ZipError::FileNameContainsNul { filename: basic });
+    }
+    if let Some(Ok(filename)) = unicode_extra.as_ref() {
+        if filename.contains('\0') {
+            return Err(ZipError::FileNameContainsNul { filename: filename.as_bytes().to_vec() });
+        }
     }
     if let Some(unicode_extra) = unicode_extra {
         let unicode = unicode_extra.map_err(|_| ZipError::InfoZipUnicodePathFieldInvalidUtf8)?;

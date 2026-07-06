@@ -47,7 +47,7 @@ pub enum ZipError {
     #[error("filename exceeded maximum size")]
     FileNameTooLarge,
     #[error("filename contained an embedded NUL byte")]
-    FileNameContainsNul,
+    FileNameContainsNul { filename: Vec<u8> },
     #[error("attempted to convert non-UTF8 bytes to a string/str")]
     StringNotUtf8,
 
