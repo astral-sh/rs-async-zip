@@ -27,7 +27,8 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
     }
 }
 
-/// Validates the minimum extraction version for Deflate64 entries.
+/// Validates the minimum extraction version for Deflate64 entries and does
+/// nothing for all other compression methods.
 ///
 /// Deflate64 decoding can stop making progress when an entry declares a
 /// contradictory legacy version. Other compression methods are not validated
