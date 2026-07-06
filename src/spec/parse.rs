@@ -502,6 +502,22 @@ mod tests {
         assert!(CentralDirectoryRecord::from_reader(&mut cursor).await.is_ok());
     }
 
+    #[cfg(feature = "deflate")]
+    #[tokio::test]
+    async fn deflate_headers_accept_legacy_extract_version() {
+        let mut local = [0; 26];
+        local[0..2].copy_from_slice(&10_u16.to_le_bytes());
+        local[4..6].copy_from_slice(&8_u16.to_le_bytes());
+        let mut local = futures_lite::io::Cursor::new(local);
+        assert!(LocalFileHeader::from_reader(&mut local).await.is_ok());
+
+        let mut central = [0; 42];
+        central[2..4].copy_from_slice(&10_u16.to_le_bytes());
+        central[6..8].copy_from_slice(&8_u16.to_le_bytes());
+        let mut central = futures_lite::io::Cursor::new(central);
+        assert!(CentralDirectoryRecord::from_reader(&mut central).await.is_ok());
+    }
+
     #[test]
     fn test_parse_zip64_eocdr() {
         let eocdr: [u8; 56] = [
