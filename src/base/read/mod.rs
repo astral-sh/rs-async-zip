@@ -227,19 +227,14 @@ where
     let num_of_entries: usize = num_of_entries.try_into().map_err(|_| ZipError::TargetZip64NotSupported)?;
     let mut entries = Vec::with_capacity(cd_entry_capacity(num_of_entries, directory_start)?);
     let mut remaining_directory_size = directory_size;
-    let mut reader = counting::Counting::new(reader);
+    let mut reader = reader;
 
     for _ in 0..num_of_entries {
         let entry = cd_record(&mut reader, zip64, &mut remaining_directory_size, claimed_entries).await?;
         entries.push(entry);
     }
 
-    consume_central_directory_digital_signature(&mut reader, directory_size).await?;
-
-    let actual = reader.bytes_read();
-    if actual != directory_size {
-        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual });
-    }
+    consume_central_directory_digital_signature(&mut reader, directory_size, remaining_directory_size).await?;
 
     Ok(entries)
 }
@@ -249,19 +244,20 @@ where
 /// Returning without reading is valid only when the declared entries already consumed the full span. Other trailing
 /// bytes, truncated records, and length claims that do not reach `directory_size` are rejected.
 async fn consume_central_directory_digital_signature<R>(
-    reader: &mut counting::Counting<R>,
+    reader: &mut R,
     directory_size: u64,
+    remaining_directory_size: u64,
 ) -> Result<()>
 where
     R: AsyncRead + Unpin,
 {
-    let actual = reader.bytes_read();
-    if actual >= directory_size {
+    if remaining_directory_size == 0 {
         return Ok(());
     }
 
+    let actual = directory_size - remaining_directory_size;
     let fixed_length = (SIGNATURE_LENGTH + CDDS_LENGTH) as u64;
-    if directory_size - actual < fixed_length {
+    if remaining_directory_size < fixed_length {
         return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual });
     }
 
@@ -274,12 +270,13 @@ where
     let mut length = [0; CDDS_LENGTH];
     reader.read_exact(&mut length).await?;
     let signature_length = u16::from_le_bytes(length) as u64;
-    let Some(record_end) =
-        actual.checked_add(fixed_length).and_then(|record_end| record_end.checked_add(signature_length))
-    else {
+    let Some(record_size) = fixed_length.checked_add(signature_length) else {
         return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual: u64::MAX });
     };
-    if record_end != directory_size {
+    let Some(record_end) = actual.checked_add(record_size) else {
+        return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual: u64::MAX });
+    };
+    if record_size != remaining_directory_size {
         return Err(ZipError::InvalidCentralDirectorySize { expected: directory_size, actual: record_end });
     }
 
