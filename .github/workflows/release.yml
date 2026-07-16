@@ -1,0 +1,148 @@
+# Validate and publish a release, then create its tag and GitHub release.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact Cargo version to release, without a leading v
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions: {}
+
+jobs:
+  validate-release:
+    name: Validate release
+    if: github.repository == 'astral-sh/rs-async-zip' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          package_version="$(
+            cargo metadata --locked --no-deps --format-version 1 |
+              jq -r '.packages[] | select(.name == "astral_async_zip") | .version'
+          )"
+          if [[ "$package_version" != "$VERSION" ]]; then
+            echo "::error::Requested version ${VERSION} does not match Cargo.toml version ${package_version}"
+            exit 1
+          fi
+
+          tag="v${VERSION}"
+          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists"
+            exit 1
+          fi
+
+          echo "Preparing ${tag} from ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - name: Verify release package
+        run: cargo publish --dry-run --locked
+
+  release-gate:
+    # N.B. This name should not change; the release environment gate relies on it.
+    name: release-gate
+    needs: validate-release
+    runs-on: ubuntu-latest
+    environment:
+      name: release-gate
+    permissions: {}
+    steps:
+      - run: echo "Release approved"
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: release-gate
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check for an existing crates.io release
+        id: published
+        shell: bash
+        run: |
+          status="$(
+            curl \
+              --retry 3 \
+              --silent \
+              --show-error \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              --user-agent 'rs-async-zip-crates-io-publish (github.com/astral-sh/rs-async-zip)' \
+              "https://crates.io/api/v1/crates/astral_async_zip/${VERSION}"
+          )"
+          case "$status" in
+            200)
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              echo "astral_async_zip ${VERSION} is already published; skipping upload." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            404)
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::crates.io returned HTTP ${status} while checking astral_async_zip ${VERSION}"
+              exit 1
+              ;;
+          esac
+        env:
+          VERSION: ${{ inputs.version }}
+
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        if: steps.published.outputs.published != 'true'
+        id: auth
+
+      - name: Publish to crates.io
+        if: steps.published.outputs.published != 'true'
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  publish-github:
+    name: Create GitHub release
+    needs: publish-crates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub release and tag
+        shell: bash
+        run: |
+          prerelease=()
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease+=(--prerelease)
+          fi
+          gh release create "v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_COMMIT" \
+            --title "astral_async_zip v${VERSION}" \
+            --generate-notes \
+            "${prerelease[@]}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          VERSION: ${{ inputs.version }}
