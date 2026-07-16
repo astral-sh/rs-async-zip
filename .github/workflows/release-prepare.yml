@@ -41,7 +41,7 @@ jobs:
         run: |
           branch="release/${VERSION}"
           git switch -c "$branch"
-          git add Cargo.toml
+          git add Cargo.toml Cargo.lock
           git commit -m "Bump version to ${VERSION}"
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${branch}"
 

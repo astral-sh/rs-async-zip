@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           package_version="$(
-            cargo metadata --no-deps --format-version 1 |
+            cargo metadata --locked --no-deps --format-version 1 |
               jq -r '.packages[] | select(.name == "astral_async_zip") | .version'
           )"
           if [[ "$package_version" != "$VERSION" ]]; then
@@ -54,7 +54,7 @@ jobs:
           VERSION: ${{ inputs.version }}
 
       - name: Verify release package
-        run: cargo publish --dry-run
+        run: cargo publish --dry-run --locked
 
   release-gate:
     # N.B. This name should not change; the release environment gate relies on it.
@@ -118,7 +118,7 @@ jobs:
 
       - name: Publish to crates.io
         if: steps.published.outputs.published != 'true'
-        run: cargo publish
+        run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 

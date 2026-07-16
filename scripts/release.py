@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Update the crate version for a release."""
+"""Update the crate version and lockfile for a release."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+PACKAGE_NAME = "astral_async_zip"
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -54,10 +55,20 @@ def main() -> None:
     version = sys.argv[1]
     update_manifest(version)
 
-    run("cargo", "metadata", "--no-deps", "--format-version", "1", capture_output=True)
+    # Let Cargo validate the version and refresh only the root package entry.
+    run("cargo", "update", "-p", PACKAGE_NAME)
+    run(
+        "cargo",
+        "metadata",
+        "--locked",
+        "--no-deps",
+        "--format-version",
+        "1",
+        capture_output=True,
+    )
     run("git", "diff", "--check")
     changed = set(run("git", "diff", "--name-only", capture_output=True).stdout.splitlines())
-    expected = {"Cargo.toml"}
+    expected = {"Cargo.toml", "Cargo.lock"}
     if changed != expected:
         raise SystemExit(f"release preparation changed {sorted(changed)}, expected {sorted(expected)}")
 
