@@ -198,15 +198,69 @@ fn cd_entry_capacity(num_of_entries: usize, directory_start: u64) -> Result<usiz
 }
 
 fn assign_entry_data_boundaries(entries: &mut [StoredZipEntry], directory_start: u64) {
-    let mut local_headers: Vec<_> = entries.iter().map(|entry| entry.file_offset).collect();
-    local_headers.sort_unstable();
+    // Central directories normally list entries in local-header order. Avoid allocating and sorting in that case.
+    if entries.windows(2).all(|pair| pair[0].file_offset < pair[1].file_offset) {
+        for index in 0..entries.len() {
+            let boundary =
+                entries.get(index + 1).map_or(directory_start, |entry| entry.file_offset).min(directory_start);
+            entries[index].data_end_boundary = boundary;
+        }
+        return;
+    }
 
-    for entry in entries {
-        entry.data_end_boundary = local_headers
-            .get(local_headers.partition_point(|offset| *offset <= entry.file_offset))
-            .copied()
-            .unwrap_or(directory_start)
-            .min(directory_start);
+    let mut local_headers: Vec<_> =
+        entries.iter().enumerate().map(|(index, entry)| (entry.file_offset, index)).collect();
+    local_headers.sort_unstable_by_key(|&(offset, _)| offset);
+
+    let mut group_start = 0;
+    while group_start < local_headers.len() {
+        let mut group_end = group_start + 1;
+        while group_end < local_headers.len() && local_headers[group_end].0 == local_headers[group_start].0 {
+            group_end += 1;
+        }
+
+        let boundary = local_headers.get(group_end).map_or(directory_start, |&(offset, _)| offset).min(directory_start);
+        for &(_, index) in &local_headers[group_start..group_end] {
+            entries[index].data_end_boundary = boundary;
+        }
+        group_start = group_end;
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::assign_entry_data_boundaries;
+    use crate::entry::{StoredZipEntry, ZipEntry};
+    use crate::spec::Compression;
+
+    fn entry(file_offset: u64) -> StoredZipEntry {
+        StoredZipEntry {
+            entry: ZipEntry::new(String::new().into(), Compression::Stored),
+            file_offset,
+            header_size: 0,
+            data_end_boundary: u64::MAX,
+        }
+    }
+
+    #[test]
+    fn assigns_ordered_entry_data_boundaries() {
+        let mut entries = [entry(10), entry(20), entry(30)];
+        assign_entry_data_boundaries(&mut entries, 40);
+        assert_eq!(entries.map(|entry| entry.data_end_boundary), [20, 30, 40]);
+    }
+
+    #[test]
+    fn assigns_unordered_entry_data_boundaries() {
+        let mut entries = [entry(30), entry(10), entry(20)];
+        assign_entry_data_boundaries(&mut entries, 40);
+        assert_eq!(entries.map(|entry| entry.data_end_boundary), [40, 20, 30]);
+    }
+
+    #[test]
+    fn assigns_duplicate_entry_data_boundaries() {
+        let mut entries = [entry(10), entry(20), entry(10)];
+        assign_entry_data_boundaries(&mut entries, 40);
+        assert_eq!(entries.map(|entry| entry.data_end_boundary), [20, 40, 20]);
     }
 }
 
