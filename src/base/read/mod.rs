@@ -513,7 +513,7 @@ fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFie
         }
         _ => None,
     });
-    if basic.contains(&0) {
+    if memchr::memchr(0, &basic).is_some() {
         return Err(ZipError::FileNameContainsNul { filename: basic });
     }
     if let Some(Ok(filename)) = unicode_extra.as_ref() {
