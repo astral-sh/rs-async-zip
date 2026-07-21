@@ -12,7 +12,7 @@ use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
-    consts::{LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH},
+    consts::{LFH_LENGTH, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH},
     header::{ExtraField, LocalFileHeader},
     parse::parse_extra_fields,
     Compression,
@@ -204,20 +204,8 @@ impl StoredZipEntry {
         // Seek to the header
         reader.seek(SeekFrom::Start(self.file_offset)).await?;
 
-        // Check the signature
-        let signature = {
-            let mut buffer = [0; 4];
-            reader.read_exact(&mut buffer).await?;
-            u32::from_le_bytes(buffer)
-        };
-
-        match signature {
-            LFH_SIGNATURE => (),
-            actual => return Err(ZipError::UnexpectedHeaderError(actual, LFH_SIGNATURE)),
-        };
-
         // Read and validate the local file header's trailing data.
-        let header = LocalFileHeader::from_reader(&mut reader).await?;
+        let header = LocalFileHeader::from_reader_with_signature(&mut reader).await?;
         let data_start = self
             .file_offset
             .checked_add((SIGNATURE_LENGTH + LFH_LENGTH) as u64)
