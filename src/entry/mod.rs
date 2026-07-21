@@ -237,9 +237,17 @@ impl StoredZipEntry {
             return Err(ZipError::LocalFileHeaderDataDescriptorMismatch);
         }
 
-        let local_filename = crate::base::read::io::read_bytes(&mut reader, header.file_name_length.into()).await?;
-        if local_filename.as_slice() != self.entry.filename().as_bytes() {
+        let expected_filename = self.entry.filename().as_bytes();
+        if usize::from(header.file_name_length) != expected_filename.len() {
             return Err(ZipError::LocalFileHeaderNameMismatch);
+        }
+        let mut filename_buffer = [0; 256];
+        for expected in expected_filename.chunks(filename_buffer.len()) {
+            let actual = &mut filename_buffer[..expected.len()];
+            reader.read_exact(actual).await?;
+            if actual != expected {
+                return Err(ZipError::LocalFileHeaderNameMismatch);
+            }
         }
 
         if !header.flags.data_descriptor
@@ -251,22 +259,32 @@ impl StoredZipEntry {
             return Err(ZipError::LocalFileHeaderSizeMismatch);
         }
 
-        let mut extra_field = vec![0; usize::from(header.extra_field_length)];
-        reader.read_exact(&mut extra_field).await?;
-        let extra_fields =
-            parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size, None, None)?;
-        let zip64_extra_field = get_zip64_extra_field(&extra_fields);
+        let (local_uncompressed_size, local_compressed_size) = if header.extra_field_length == 0 {
+            if header.compressed_size == NON_ZIP64_MAX_SIZE || header.uncompressed_size == NON_ZIP64_MAX_SIZE {
+                return Err(if header.flags.data_descriptor {
+                    ZipError::Zip64ExtendedFieldIncomplete
+                } else {
+                    ZipError::LocalFileHeaderSizeMismatch
+                });
+            }
+            (header.uncompressed_size as u64, header.compressed_size as u64)
+        } else {
+            let mut extra_field = vec![0; usize::from(header.extra_field_length)];
+            reader.read_exact(&mut extra_field).await?;
+            let extra_fields =
+                parse_extra_fields(extra_field, header.uncompressed_size, header.compressed_size, None, None)?;
+            let zip64_extra_field = get_zip64_extra_field(&extra_fields);
 
-        if !header.flags.data_descriptor
-            && zip64_extra_field.is_none()
-            && extra_fields.is_empty()
-            && (header.compressed_size == NON_ZIP64_MAX_SIZE || header.uncompressed_size == NON_ZIP64_MAX_SIZE)
-        {
-            return Err(ZipError::LocalFileHeaderSizeMismatch);
-        }
+            if !header.flags.data_descriptor
+                && zip64_extra_field.is_none()
+                && extra_fields.is_empty()
+                && (header.compressed_size == NON_ZIP64_MAX_SIZE || header.uncompressed_size == NON_ZIP64_MAX_SIZE)
+            {
+                return Err(ZipError::LocalFileHeaderSizeMismatch);
+            }
 
-        let (local_uncompressed_size, local_compressed_size) =
-            get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?;
+            get_combined_sizes(header.uncompressed_size, header.compressed_size, &zip64_extra_field)?
+        };
 
         if !header.flags.data_descriptor
             && (local_compressed_size != self.entry.compressed_size
