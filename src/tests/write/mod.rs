@@ -463,6 +463,50 @@ async fn seekable_stream_deflate_writes_compact_headers() {
     assert_eq!(actual, contents);
 }
 
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn precompressed_whole_write_round_trips() {
+    let contents = b"repeated data ".repeat(128);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Deflate).build();
+    let compressed = crate::base::write::compress(&entry, &contents).await.unwrap();
+    let entry = ZipEntryBuilder::from(entry)
+        .crc32(crate::base::write::crc32(&contents))
+        .uncompressed_size(contents.len() as u64);
+
+    let mut writer = ZipFileWriter::new(Vec::new());
+    writer.write_entry_whole_precompressed(entry, &compressed).await.unwrap();
+    let buffer = writer.close().await.unwrap();
+
+    let reader = crate::base::read::mem::ZipFileReader::new(buffer).await.unwrap();
+    let mut entry = reader.reader_without_entry(0).await.unwrap();
+    let mut actual = Vec::new();
+    futures_lite::io::AsyncReadExt::read_to_end(&mut entry, &mut actual).await.unwrap();
+    assert_eq!(actual, contents);
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn precompressed_stream_write_round_trips() {
+    let contents = b"repeated data ".repeat(128);
+    let entry = ZipEntryBuilder::new("file".into(), Compression::Deflate).build();
+    let compressed = crate::base::write::compress(&entry, &contents).await.unwrap();
+    let entry = ZipEntryBuilder::from(entry)
+        .crc32(crate::base::write::crc32(&contents))
+        .uncompressed_size(contents.len() as u64);
+
+    let mut writer = ZipFileWriter::new(Vec::new());
+    let mut entry_writer = writer.write_entry_stream_precompressed(entry).await.unwrap();
+    entry_writer.write_all(&compressed).await.unwrap();
+    entry_writer.close().await.unwrap();
+    let buffer = writer.close().await.unwrap();
+
+    let reader = crate::base::read::mem::ZipFileReader::new(buffer).await.unwrap();
+    let mut entry = reader.reader_without_entry(0).await.unwrap();
+    let mut actual = Vec::new();
+    futures_lite::io::AsyncReadExt::read_to_end(&mut entry, &mut actual).await.unwrap();
+    assert_eq!(actual, contents);
+}
+
 #[tokio::test]
 async fn reject_large_archive_comment() {
     let mut buffer = Vec::new();

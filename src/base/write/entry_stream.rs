@@ -42,6 +42,7 @@ pub struct EntryStreamWriter<'b, W: AsyncWrite + Unpin> {
     lfh_offset: u64,
     data_offset: u64,
     force_no_zip64: bool,
+    precompressed: bool,
     /// To write back to the original writer if zip64 is required.
     is_zip64: &'b mut bool,
 }
@@ -49,15 +50,30 @@ pub struct EntryStreamWriter<'b, W: AsyncWrite + Unpin> {
 impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
     pub(crate) async fn from_raw(
         writer: &'b mut ZipFileWriter<W>,
-        mut entry: ZipEntry,
+        entry: ZipEntry,
     ) -> Result<EntryStreamWriter<'b, W>> {
-        if writer.force_no_zip64 && writer.cd_entries.len() >= NON_ZIP64_MAX_NUM_FILES as usize {
-            return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
-        }
-
         #[cfg(feature = "deflate64")]
         if matches!(entry.compression(), crate::Compression::Deflate64) {
             return Err(ZipError::FeatureNotSupported("Deflate64 writing"));
+        }
+
+        Self::from_raw_with_mode(writer, entry, false).await
+    }
+
+    pub(crate) async fn from_raw_precompressed(
+        writer: &'b mut ZipFileWriter<W>,
+        entry: ZipEntry,
+    ) -> Result<EntryStreamWriter<'b, W>> {
+        Self::from_raw_with_mode(writer, entry, true).await
+    }
+
+    async fn from_raw_with_mode(
+        writer: &'b mut ZipFileWriter<W>,
+        mut entry: ZipEntry,
+        precompressed: bool,
+    ) -> Result<EntryStreamWriter<'b, W>> {
+        if writer.force_no_zip64 && writer.cd_entries.len() >= NON_ZIP64_MAX_NUM_FILES as usize {
+            return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
         }
 
         let lfh_offset = writer.writer.offset();
@@ -67,7 +83,11 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
 
         let cd_entries = &mut writer.cd_entries;
         let is_zip64 = &mut writer.is_zip64;
-        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, entry.compression())?);
+        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(
+            &mut writer.writer,
+            entry.compression(),
+            precompressed,
+        )?);
 
         Ok(EntryStreamWriter {
             writer,
@@ -78,6 +98,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
             data_offset,
             hasher: Hasher::new(),
             force_no_zip64,
+            precompressed,
             is_zip64,
         })
     }
@@ -180,10 +201,16 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
     pub async fn close(mut self) -> Result<()> {
         self.writer.close().await?;
 
-        let crc = self.hasher.finalize();
-        let uncompressed_size = self.writer.offset();
+        let (crc, uncompressed_size) = if self.precompressed {
+            (self.entry.crc32, self.entry.uncompressed_size)
+        } else {
+            (self.hasher.finalize(), self.writer.offset())
+        };
         let inner_writer = self.writer.into_inner().into_inner();
         let compressed_size = inner_writer.offset() - self.data_offset;
+        self.entry.crc32 = crc;
+        self.entry.uncompressed_size = uncompressed_size;
+        self.entry.compressed_size = compressed_size;
 
         let (cdr_compressed_size, cdr_uncompressed_size, lh_offset) = if self.force_no_zip64 {
             if uncompressed_size > NON_ZIP64_MAX_SIZE as u64
@@ -264,8 +291,10 @@ impl<'a, W: AsyncWrite + Unpin> AsyncWrite for EntryStreamWriter<'a, W> {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<std::result::Result<usize, Error>> {
         let poll = Pin::new(&mut self.writer).poll_write(cx, buf);
 
-        if let Poll::Ready(Ok(written)) = poll {
-            self.hasher.update(&buf[0..written]);
+        if !self.precompressed {
+            if let Poll::Ready(Ok(written)) = poll {
+                self.hasher.update(&buf[0..written]);
+            }
         }
 
         poll
