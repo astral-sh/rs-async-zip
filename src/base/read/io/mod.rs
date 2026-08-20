@@ -27,7 +27,10 @@ where
     R: AsyncRead + Unpin,
 {
     let mut buffer = Vec::with_capacity(length);
-    reader.take(length as u64).read_to_end(&mut buffer).await?;
+    let read = reader.take(length as u64).read_to_end(&mut buffer).await?;
+    if read != length {
+        return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "ZIP structure was truncated"));
+    }
 
     Ok(buffer)
 }
@@ -43,7 +46,7 @@ where
         let to_read = std::cmp::min(remaining, buf.len() as u64) as usize;
         let n = reader.read(&mut buf[..to_read]).await?;
         if n == 0 {
-            break;
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "ZIP structure was truncated"));
         }
         remaining -= n as u64;
     }

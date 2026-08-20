@@ -40,6 +40,18 @@ async fn locator_empty_test() {
 }
 
 #[tokio::test]
+async fn locator_short_reads_test() {
+    use futures_lite::io::Cursor;
+
+    let data = &include_bytes!("empty.zip");
+    let mut reader = super::ShortReader::new(Cursor::new(data), 3);
+    let eocdr = crate::base::read::io::locator::eocdr(&mut reader).await;
+
+    assert!(eocdr.is_ok());
+    assert_eq!(eocdr.unwrap(), 4);
+}
+
+#[tokio::test]
 async fn locator_empty_max_comment_test() {
     use futures_lite::io::Cursor;
 
