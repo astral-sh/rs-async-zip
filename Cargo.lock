@@ -311,7 +311,7 @@ checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "astral_async_zip"
-version = "0.0.20"
+version = "0.0.21"
 dependencies = [
  "actix-multipart",
  "actix-web",
