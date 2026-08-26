@@ -54,8 +54,8 @@ where
 {
     /// Constructs a new ZIP reader from a seekable source.
     ///
-    /// The source must be finite or bounded to a single archive. Only NUL padding is permitted
-    /// after the end record's comment. Entry contents are not read during construction.
+    /// The source must be finite or bounded to a single archive. At most 4 KiB of NUL padding is
+    /// permitted after the end record's declared comment. Local headers are not walked during construction.
     pub async fn new(mut reader: R) -> Result<ZipFileReader<R>> {
         let file = crate::base::read::file(&mut reader).await?;
         Ok(ZipFileReader::from_raw_parts(reader, file))

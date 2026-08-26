@@ -101,8 +101,9 @@ where
     /// reader to the next record.
     ///
     /// Returns `Ok(EndOfCentralDirectoryRecord)` if the end of the central directory record has
-    /// been reached and only optional NUL padding remains before EOF. The source must be finite
-    /// or bounded to a single archive; returning the end record consumes that padding.
+    /// been reached and at most 4 KiB of NUL padding remains before EOF. The source must be finite
+    /// or bounded to a single archive; returning the end record consumes that padding. Zeros in
+    /// the declared comment do not count toward the padding limit.
     pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's

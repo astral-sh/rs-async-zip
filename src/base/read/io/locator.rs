@@ -25,11 +25,13 @@ use crate::spec::consts::{EOCDR_LENGTH, EOCDR_SIGNATURE, SIGNATURE_LENGTH};
 
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, SeekFrom};
 
+use super::MAX_TRAILING_NUL_BYTES;
+
 /// The buffer size used when locating the EOCDR, equal to 2KiB.
 const BUFFER_SIZE: usize = 2048;
 
-/// The maximum distance from the end of the archive comment to the EOCDR signature.
-const EOCDR_SEARCH_LENGTH: u64 = (EOCDR_LENGTH + SIGNATURE_LENGTH) as u64 + u16::MAX as u64;
+/// The maximum distance from physical EOF to the EOCDR signature, including comment and padding.
+const EOCDR_SEARCH_LENGTH: u64 = (EOCDR_LENGTH + SIGNATURE_LENGTH + MAX_TRAILING_NUL_BYTES) as u64 + u16::MAX as u64;
 
 /// Locate the `end of central directory record` offset, if one exists.
 /// The returned offset excludes the signature (4 bytes)
@@ -44,31 +46,21 @@ pub async fn eocdr<R>(mut reader: R) -> ZipResult<u64>
 where
     R: AsyncRead + AsyncSeek + Unpin,
 {
-    let mut end = reader.seek(SeekFrom::End(0)).await?;
+    let end = reader.seek(SeekFrom::End(0)).await?;
     let signature = &EOCDR_SIGNATURE.to_le_bytes();
     let mut buffer: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 
-    // NUL padding has no length limit. Find the last nonzero byte without allocating for or
-    // changing the source. This is only a search anchor: zeros in the end record or its comment
-    // are still parsed normally, with their declared lengths checked against the physical EOF.
-    let (mut position, mut read) = loop {
-        let position = end.saturating_sub(BUFFER_SIZE as u64);
-        let read = (end - position) as usize;
+    // Bound work even for an all-zero source. The window includes the full declared comment
+    // allowance: its zeros and the end record's zero-valued fields are not suffix padding.
+    // The footer parser checks the actual padding length after reading the declared comment.
+    let lower_bound = end.saturating_sub(EOCDR_SEARCH_LENGTH);
+    let mut position = end.saturating_sub(BUFFER_SIZE as u64);
+
+    loop {
+        let read = BUFFER_SIZE.min((end - position) as usize);
         reader.seek(SeekFrom::Start(position)).await?;
         reader.read_exact(&mut buffer[..read]).await?;
 
-        if let Some(last) = buffer[..read].iter().rposition(|&byte| byte != 0) {
-            end = position + last as u64 + 1;
-            break (position, read);
-        }
-        if position == 0 {
-            return Err(ZipError::UnableToLocateEOCDR);
-        }
-        end = position;
-    };
-    let lower_bound = end.saturating_sub(EOCDR_SEARCH_LENGTH);
-
-    loop {
         if let Some(match_index) = reverse_search_buffer(&buffer[..read], signature) {
             return Ok(position + (match_index + 1) as u64);
         }
@@ -82,9 +74,6 @@ where
         // signature length. This significantly reduces the complexity of handling partial matches with very little
         // overhead.
         position = position.saturating_sub((BUFFER_SIZE - SIGNATURE_LENGTH) as u64).max(lower_bound);
-        reader.seek(SeekFrom::Start(position)).await?;
-        read = BUFFER_SIZE.min((end - position) as usize);
-        reader.read_exact(&mut buffer[..read]).await?;
     }
 }
 
