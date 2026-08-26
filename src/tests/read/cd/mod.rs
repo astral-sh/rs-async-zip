@@ -84,6 +84,71 @@ async fn malo_accept_comment() {
     }
 }
 
+#[tokio::test]
+async fn malo_iffy_8bitcomment() {
+    use crate::error::ZipError;
+
+    let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/iffy/8bitcomment.zip")).await;
+    assert_eq!(
+        streaming.unwrap_err().to_string(),
+        "ZIP file end-of-central-directory record contains a comment that appears to be an embedded ZIP file"
+    );
+    // Seeking already rejects the end record found inside this fixture's binary comment.
+    for result in [seeking, memory] {
+        assert!(matches!(result, Err(ZipError::FeatureNotSupported("Spanned/split files"))));
+    }
+}
+
+#[tokio::test]
+async fn malo_malicious_zipinzip() {
+    use crate::error::ZipError;
+
+    let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/malicious/zipinzip.zip")).await;
+    assert!(streaming.is_err(), "streaming: {streaming:?}, seeking: {seeking:?}, memory: {memory:?}");
+    assert_eq!(
+        streaming.unwrap_err().to_string(),
+        "ZIP file end-of-central-directory record contains a comment that appears to be an embedded ZIP file"
+    );
+    // This unchanged fixture already fails seeking's directory binding check. The boundary tests
+    // also need a derived case with the inner archive's offsets adjusted to the containing source.
+    for result in [seeking, memory] {
+        assert!(matches!(result, Err(ZipError::InvalidCentralDirectoryBinding { directory_end: 87, end_record: 196 })));
+    }
+}
+
+fn with_archive_comment(archive: &[u8], comment: &[u8]) -> Vec<u8> {
+    use crate::spec::consts::{EOCDR_LENGTH, EOCDR_SIGNATURE, SIGNATURE_LENGTH};
+
+    // Derive only the archive comment from an existing valid fixture; retain all entry bytes.
+    let offset = archive.windows(4).rposition(|bytes| bytes == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
+    let end = offset + SIGNATURE_LENGTH + EOCDR_LENGTH;
+    let mut data = archive[..end].to_vec();
+    data[end - 2..end].copy_from_slice(&(comment.len() as u16).to_le_bytes());
+    data.extend_from_slice(comment);
+    data
+}
+
+async fn check_archive_comment_policy(archive: &[u8]) {
+    // Malo's 8bitcomment repro does not isolate each rejected byte or the adjacent allowed values.
+    for byte in (0..=10).chain([13, 127, 255]) {
+        let data = with_archive_comment(archive, &[byte]);
+        for result in archive_results(&data).await {
+            assert_eq!(result.is_err(), (1..=8).contains(&byte), "comment byte {byte:#x}: {result:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn archive_comment_policy_matches_uv() {
+    check_archive_comment_policy(include_bytes!("../malo/accept/comment.zip")).await;
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn zip64_archive_comment_policy_matches_uv() {
+    check_archive_comment_policy(include_bytes!("../malo/accept/zip64_eocd.zip")).await;
+}
+
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_deflate() {
