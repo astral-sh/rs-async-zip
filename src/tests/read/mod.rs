@@ -67,18 +67,19 @@ fn assert_unexpected_eof(error: ZipError) {
 }
 
 #[tokio::test]
-async fn test_truncated_eocdr_comment_is_rejected() {
+async fn test_truncated_eocdr_is_rejected() {
     use futures_lite::io::Cursor;
 
     use crate::base::read::seek::ZipFileReader;
 
-    // The fixture ends one byte before its declared EOCD comment length.
-    let reader = Cursor::new(include_bytes!("truncated/empty-with-max-comment.zip"));
-    let Err(error) = ZipFileReader::new(reader).await else {
-        panic!("expected a truncated EOCD comment to fail");
-    };
-
-    assert_unexpected_eof(error);
+    // Neither declared comment bytes nor zero-filled EOCD fields are optional padding.
+    let empty = include_bytes!("locator/empty.zip");
+    for data in [include_bytes!("truncated/empty-with-max-comment.zip").as_slice(), &empty[..empty.len() - 1]] {
+        let Err(error) = ZipFileReader::new(Cursor::new(data)).await else {
+            panic!("expected a truncated EOCD to fail");
+        };
+        assert_unexpected_eof(error);
+    }
 }
 
 #[tokio::test]
