@@ -76,22 +76,25 @@ async fn locator_buffer_boundary_test() {
 }
 
 #[tokio::test]
-async fn locator_accepts_long_nul_padding() {
+async fn locator_accepts_nul_padding_up_to_limit() {
     use crate::base::read::{io::locator::eocdr, mem, seek};
     use futures_lite::io::Cursor;
 
-    // Neither uv nor Malo has long-padding cases. Keep the existing archives intact and append
-    // only padding beyond the maximum EOCD/comment search window, including chunk boundaries.
+    // Append only padding to existing fixtures, including chunk boundaries and the 4 KiB limit.
+    // A zero-filled maximum comment distinguishes declared comment bytes from suffix padding.
+    let mut nul_comment = include_bytes!("empty-with-max-comment.zip").to_vec();
+    nul_comment[22..].fill(0);
     let archives: &[&[u8]] = &[
         include_bytes!("empty.zip"),
         include_bytes!("empty-with-max-comment.zip"),
+        &nul_comment,
         include_bytes!("empty-buffer-boundary.zip"),
         include_bytes!("../malo/accept/store.zip"),
         include_bytes!("../malo/accept/comment.zip"),
     ];
     for &archive in archives {
         let expected = eocdr(Cursor::new(archive)).await.unwrap();
-        for padding in [65_557, 65_558, 67_606] {
+        for padding in [0, 2047, 2048, 2049, 4095, 4096] {
             let mut data = archive.to_vec();
             data.resize(data.len() + padding, 0);
             assert_eq!(eocdr(Cursor::new(&data)).await.unwrap(), expected);
@@ -103,26 +106,33 @@ async fn locator_accepts_long_nul_padding() {
 
 #[cfg(feature = "deflate")]
 #[tokio::test]
-async fn locator_accepts_long_nul_padding_after_zip64() {
+async fn zip64_nul_padding_limit_is_enforced() {
     use crate::base::read::{io::locator::eocdr, mem, seek};
     use futures_lite::io::Cursor;
 
-    let mut data = include_bytes!("../malo/accept/zip64_eocd.zip").to_vec();
-    let expected = eocdr(Cursor::new(&data)).await.unwrap();
-    data.resize(data.len() + 131_072, 0);
-    assert_eq!(eocdr(Cursor::new(&data)).await.unwrap(), expected);
-    super::cd::read_streamed_archive(&data[..]).await.unwrap();
-    seek::ZipFileReader::new(Cursor::new(&data)).await.unwrap();
-    mem::ZipFileReader::new(data).await.unwrap();
+    let original = include_bytes!("../malo/accept/zip64_eocd.zip");
+    let expected = eocdr(Cursor::new(original)).await.unwrap();
+    for padding in [4096, 4097] {
+        let mut data = original.to_vec();
+        data.resize(data.len() + padding, 0);
+        assert_eq!(eocdr(Cursor::new(&data)).await.unwrap(), expected);
+        for result in [
+            super::cd::read_streamed_archive(&data[..]).await,
+            seek::ZipFileReader::new(Cursor::new(&data)).await.map(|_| ()),
+            mem::ZipFileReader::new(data).await.map(|_| ()),
+        ] {
+            assert_eq!(result.is_ok(), padding <= 4096, "{padding} padding bytes: {result:?}");
+        }
+    }
 }
 
 #[tokio::test]
-async fn locator_accepts_long_nul_padding_with_short_reads() {
+async fn locator_accepts_maximum_comment_and_padding_with_short_reads() {
     use crate::base::read::io::locator::eocdr;
     use futures_lite::io::Cursor;
 
-    let mut data = include_bytes!("empty.zip").to_vec();
-    data.resize(data.len() + 65_558, 0);
+    let mut data = include_bytes!("empty-with-max-comment.zip").to_vec();
+    data.resize(data.len() + 4096, 0);
     let reader = super::ShortReader::new(Cursor::new(data), 3);
     assert_eq!(eocdr(reader).await.unwrap(), 4);
 }
@@ -135,8 +145,10 @@ async fn locator_rejects_all_zero_input() {
 
     let mut data = include_bytes!("empty.zip").to_vec();
     data.fill(0);
-    data.resize(65_558, 0);
-    assert!(matches!(eocdr(Cursor::new(data)).await, Err(ZipError::UnableToLocateEOCDR)));
+    data.resize(2 * 1024 * 1024, 0);
+    let mut reader = super::ShortReader::new(Cursor::new(data), 2048);
+    assert!(matches!(eocdr(&mut reader).await, Err(ZipError::UnableToLocateEOCDR)));
+    assert!(reader.bytes_read < 72 * 1024, "EOCD lookup read {} bytes", reader.bytes_read);
 }
 
 #[tokio::test]

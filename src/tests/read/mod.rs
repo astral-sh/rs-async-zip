@@ -23,11 +23,12 @@ struct ShortReader<R> {
     inner: R,
     max_read: usize,
     eof_error: Option<std::io::ErrorKind>,
+    bytes_read: usize,
 }
 
 impl<R> ShortReader<R> {
     fn new(inner: R, max_read: usize) -> Self {
-        Self { inner, max_read, eof_error: None }
+        Self { inner, max_read, eof_error: None, bytes_read: 0 }
     }
 
     fn with_eof_error(mut self, kind: std::io::ErrorKind) -> Self {
@@ -42,6 +43,10 @@ impl<R: AsyncRead + Unpin> AsyncRead for ShortReader<R> {
         match Pin::new(&mut self.inner).poll_read(cx, &mut buf[..max_read]) {
             Poll::Ready(Ok(0)) if !buf.is_empty() && self.eof_error.is_some() => {
                 Poll::Ready(Err(std::io::Error::new(self.eof_error.unwrap(), "suffix read failed")))
+            }
+            Poll::Ready(Ok(read)) => {
+                self.bytes_read += read;
+                Poll::Ready(Ok(read))
             }
             result => result,
         }
