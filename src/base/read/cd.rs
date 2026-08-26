@@ -101,7 +101,8 @@ where
     /// reader to the next record.
     ///
     /// Returns `Ok(EndOfCentralDirectoryRecord)` if the end of the central directory record has
-    /// been reached.
+    /// been reached and only optional NUL padding remains before EOF. The source must be finite
+    /// or bounded to a single archive; returning the end record consumes that padding.
     pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's
@@ -142,11 +143,9 @@ where
                         ));
                     }
 
-                    return Ok(Entry::EndOfCentralDirectoryRecord {
-                        record: CombinedCentralDirectoryRecord::try_from(&eocdr)?,
-                        comment,
-                        extensible: false,
-                    });
+                    let record = CombinedCentralDirectoryRecord::try_from(&eocdr)?;
+                    io::validate_trailing_contents(&mut self.reader).await?;
+                    return Ok(Entry::EndOfCentralDirectoryRecord { record, comment, extensible: false });
                 }
                 ZIP64_EOCDR_SIGNATURE => {
                     // Read the ZIP64 EOCDR.
@@ -214,6 +213,7 @@ where
                         ));
                     }
 
+                    io::validate_trailing_contents(&mut self.reader).await?;
                     return Ok(Entry::EndOfCentralDirectoryRecord { record: combined, comment, extensible });
                 }
                 actual => return Err(ZipError::UnexpectedHeaderError(actual, CDH_SIGNATURE)),

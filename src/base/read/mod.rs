@@ -56,6 +56,7 @@ where
     let eocdr = EndOfCentralDirectoryHeader::from_reader(&mut reader).await?;
 
     let comment = io::read_string(&mut reader, eocdr.file_comm_length.into(), crate::StringEncoding::Utf8).await?;
+    let archive_end = reader.seek(SeekFrom::Current(0)).await?;
 
     // Check the 20 bytes before the EOCDR for the Zip64 EOCDL, plus an extra 4 bytes because the offset
     // does not include the signature. If the ECODL exists we are dealing with a Zip64 file.
@@ -101,8 +102,10 @@ where
 
     // To avoid lots of small reads to `reader` when parsing the central directory, we use a BufReader that can read the whole central directory at once.
     // Because `eocdr.offset_of_start_of_directory` is a u64, we use MAX_CD_BUFFER_SIZE to prevent very large buffer sizes.
-    let mut buf =
-        BufReader::with_capacity(std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE), reader);
+    let mut buf = BufReader::with_capacity(
+        std::cmp::min(eocdr.offset_of_start_of_directory as _, MAX_CD_BUFFER_SIZE),
+        &mut reader,
+    );
     let mut entries = crate::base::read::cd(
         &mut buf,
         eocdr.num_entries_in_directory,
@@ -113,6 +116,10 @@ where
     .await?;
     validate_central_directory_binding(&eocdr, central_directory_boundary)?;
     assign_entry_data_boundaries(&mut entries, eocdr.offset_of_start_of_directory);
+
+    drop(buf);
+    reader.seek(SeekFrom::Start(archive_end)).await?;
+    io::validate_trailing_contents(&mut reader).await?;
 
     Ok(ZipFile { entries, comment, zip64 })
 }

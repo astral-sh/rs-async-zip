@@ -15,6 +15,10 @@
 //! still be produced nevertheless.
 //!
 //! # Considerations
+//! Entry iteration stops at the central directory; it does not validate the archive's footer.
+//! Continue with [`crate::base::read::cd::CentralDirectoryReader`] through its end record to
+//! validate the footer and trailing contents.
+//!
 //! As the central directory of a ZIP archive is stored at the end of it, a non-seekable reader doesn't have access
 //! to it. We have to rely on information provided within the local file header which may not be accurate or complete.
 //! This results in:
