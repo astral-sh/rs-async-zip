@@ -74,6 +74,15 @@ pub(crate) async fn validate_trailing_contents<R: AsyncRead + Unpin>(reader: R) 
     }
 }
 
+/// Conservatively excludes embedded ZIP records from the archive comment, matching uv's policy.
+/// Entry comments and file contents are not subject to this restriction.
+pub(crate) fn validate_archive_comment(comment: &ZipString) -> crate::error::Result<()> {
+    if comment.as_bytes().iter().any(|byte| (1..=8).contains(byte)) {
+        return Err(crate::error::ZipError::ZipInZip);
+    }
+    Ok(())
+}
+
 /// A macro that returns the inner value of an Ok or early-returns in the case of an Err.
 ///
 /// This is almost identical to the ? operator but handles the situation when a Result is used in combination with

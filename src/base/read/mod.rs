@@ -120,6 +120,7 @@ where
     // Only NUL padding may follow the EOCDR and its comment. Drop the central-directory buffer and
     // seek to the saved archive end so any bytes it read ahead are included in the trailing check.
     drop(buf);
+    io::validate_archive_comment(&comment)?;
     reader.seek(SeekFrom::Start(archive_end)).await?;
     io::validate_trailing_contents(&mut reader).await?;
 

@@ -104,6 +104,8 @@ where
     /// been reached and at most 4 KiB of NUL padding remains before EOF. The source must be finite
     /// or bounded to a single archive; returning the end record consumes that padding. Zeros in
     /// the declared comment do not count toward the padding limit.
+    /// Archive comments containing bytes `0x01` through `0x08` are rejected as a conservative
+    /// defense against embedded ZIP records. Entry comments are not restricted this way.
     pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's
@@ -145,6 +147,7 @@ where
                     }
 
                     let record = CombinedCentralDirectoryRecord::try_from(&eocdr)?;
+                    io::validate_archive_comment(&comment)?;
                     io::validate_trailing_contents(&mut self.reader).await?;
                     return Ok(Entry::EndOfCentralDirectoryRecord { record, comment, extensible: false });
                 }
@@ -214,6 +217,7 @@ where
                         ));
                     }
 
+                    io::validate_archive_comment(&comment)?;
                     io::validate_trailing_contents(&mut self.reader).await?;
                     return Ok(Entry::EndOfCentralDirectoryRecord { record: combined, comment, extensible });
                 }
