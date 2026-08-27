@@ -56,6 +56,8 @@ where
     ///
     /// The source must be finite or bounded to a single archive. At most 4 KiB of NUL padding is
     /// permitted after the end record's declared comment. Local headers are not walked during construction.
+    /// Archive and entry comments containing bytes `0x01` through `0x08` are conservatively rejected to
+    /// exclude embedded ZIP records; this does not prohibit ZIP files stored as entries.
     pub async fn new(mut reader: R) -> Result<ZipFileReader<R>> {
         let file = crate::base::read::file(&mut reader).await?;
         Ok(ZipFileReader::from_raw_parts(reader, file))

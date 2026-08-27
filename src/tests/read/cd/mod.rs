@@ -84,6 +84,62 @@ async fn malo_accept_comment() {
     }
 }
 
+#[tokio::test]
+async fn malo_iffy_8bitcomment() {
+    use crate::error::ZipError;
+
+    let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/iffy/8bitcomment.zip")).await;
+    assert!(matches!(streaming, Err(ZipError::ZipInZip)), "{streaming:?}");
+    // Seeking already rejects the end record found inside this fixture's binary comment.
+    for result in [seeking, memory] {
+        assert!(matches!(result, Err(ZipError::FeatureNotSupported("Spanned/split files"))));
+    }
+}
+
+#[tokio::test]
+async fn malo_malicious_zipinzip() {
+    use crate::error::ZipError;
+
+    let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/malicious/zipinzip.zip")).await;
+    assert!(matches!(streaming, Err(ZipError::ZipInZip)), "{streaming:?}");
+    // This unchanged fixture already fails seeking's directory binding check. The boundary tests
+    // also need a derived case with the inner archive's offsets adjusted to the containing source.
+    for result in [seeking, memory] {
+        assert!(matches!(result, Err(ZipError::InvalidCentralDirectoryBinding { directory_end: 87, end_record: 196 })));
+    }
+}
+
+#[tokio::test]
+async fn entry_comments_are_validated() {
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder, ZipString};
+
+    // Malo covers archive comments; use the writer to exercise entry comments and both encodings
+    // of an Info-ZIP Unicode comment. These bytes remain valid in entry payloads.
+    for (comment, rejected) in [
+        (ZipString::new_with_alternative("\0\t\n".into(), vec![0xff]), false),
+        ("\x01\x08".into(), true),
+        (ZipString::new_with_alternative("safe".into(), vec![0x01]), true),
+        (ZipString::new_with_alternative("\x08".into(), b"safe".to_vec()), true),
+    ] {
+        let mut writer = ZipFileWriter::new(Vec::new());
+        writer
+            .write_entry_whole(ZipEntryBuilder::new("entry".into(), Compression::Stored).comment(comment), b"\x01\x08")
+            .await
+            .unwrap();
+        let data = writer.close().await.unwrap();
+        let results = archive_results(&data).await;
+        if rejected {
+            assert!(results.iter().all(|result| matches!(result, Err(ZipError::ZipInZip))), "{results:?}");
+        } else {
+            for result in results {
+                result.unwrap();
+            }
+        }
+    }
+}
+
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_deflate() {

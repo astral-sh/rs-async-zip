@@ -55,6 +55,8 @@ pub enum ZipError {
     UnableToLocateEOCDR,
     #[error("ZIP file contains trailing contents after the end-of-central-directory record")]
     TrailingContents,
+    #[error("ZIP file contains a comment that appears to be an embedded ZIP file")]
+    ZipInZip,
     #[error("extra field size was indicated to be {0} but fewer than {0} bytes remain")]
     InvalidExtraFieldHeader(u16),
     #[error("zip64 extended information field was incomplete")]

@@ -17,3 +17,5 @@ in memory and document the missing coverage and transformation at the test.
 | [accept/deflate.zip](https://pub-c6f28d316acd406eae43501e51ad30fa.r2.dev/0723f54ceb33a4fdc7f2eddc19635cd704d61c84/accept/deflate.zip) | `c26690559a6fd64c3ee7518c17c6a369d92d601e47d27087b8008dbadcda97a2` |
 | [accept/comment.zip](https://pub-c6f28d316acd406eae43501e51ad30fa.r2.dev/0723f54ceb33a4fdc7f2eddc19635cd704d61c84/accept/comment.zip) | `0a6e281dd84aa267654bd54fe4d60609de372686b851484e3d58af6380a96e12` |
 | [accept/zip64_eocd.zip](https://pub-c6f28d316acd406eae43501e51ad30fa.r2.dev/0723f54ceb33a4fdc7f2eddc19635cd704d61c84/accept/zip64_eocd.zip) | `1e137e5f6c5bedf3e72014aef6787fd6b9995ea04f496b76a9a4819b1d6ca7fa` |
+| [iffy/8bitcomment.zip](https://pub-c6f28d316acd406eae43501e51ad30fa.r2.dev/0723f54ceb33a4fdc7f2eddc19635cd704d61c84/iffy/8bitcomment.zip) | `fd7258ff9f21cbe8aca3641bc527ff011067644cf2a1f582e2c576ec6450cbfc` |
+| [malicious/zipinzip.zip](https://pub-c6f28d316acd406eae43501e51ad30fa.r2.dev/0723f54ceb33a4fdc7f2eddc19635cd704d61c84/malicious/zipinzip.zip) | `24f48764ec948c3948b80bc78c8e39bf7e7bdde6066c3bb42d0ace72f0edb5e3` |
