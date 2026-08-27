@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+
 """Regenerate the ZIP reader fixtures, or verify their bytes with --check."""
 
 from __future__ import annotations

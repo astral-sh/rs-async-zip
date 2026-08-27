@@ -5,11 +5,12 @@ These fixtures are generated independently of Malo with Python's standard-librar
 checked-in bytes directly; Python is needed only to regenerate or check them.
 
 ```sh
-python3 src/tests/read/cd/fixtures/generate.py
-python3 src/tests/read/cd/fixtures/generate.py --check
+uv run src/tests/read/cd/fixtures/generate.py
+uv run src/tests/read/cd/fixtures/generate.py --check
 ```
 
-Use Python 3.11 or newer with zlib. Timestamps, entry order, permissions, and
+The script's PEP 723 metadata declares Python 3.11+ with no third-party dependencies;
+`uv` selects a compatible interpreter. Timestamps, entry order, permissions, and
 compression settings are fixed. Deflate uses level zero to avoid dependence on
 compression heuristics. `--output-dir PATH` writes or checks another directory.
 `--check` fails for missing, changed, or unexpected ZIP files without changing them.
