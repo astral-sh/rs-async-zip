@@ -57,6 +57,8 @@ pub enum ZipError {
     TrailingContents,
     #[error("ZIP file contains a comment that appears to be an embedded ZIP file")]
     ZipInZip,
+    #[error("ZIP archive has an invalid record boundary at offset {offset:#x}")]
+    InvalidArchiveBoundary { offset: u64 },
     #[error("extra field size was indicated to be {0} but fewer than {0} bytes remain")]
     InvalidExtraFieldHeader(u16),
     #[error("zip64 extended information field was incomplete")]

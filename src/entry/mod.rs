@@ -12,7 +12,10 @@ use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
-    consts::{LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH},
+    consts::{
+        DATA_DESCRIPTOR_LENGTH, LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH,
+        ZIP64_DATA_DESCRIPTOR_LENGTH,
+    },
     header::{ExtraField, LocalFileHeader},
     parse::parse_extra_fields,
     Compression,
@@ -273,6 +276,21 @@ impl StoredZipEntry {
                 || local_uncompressed_size != self.entry.uncompressed_size)
         {
             return Err(ZipError::LocalFileHeaderSizeMismatch);
+        }
+
+        // The declared local record must fill its indexed span. A descriptor entry reserves
+        // exactly one descriptor of the local header's width, with an optional signature.
+        // This checks the range, not the descriptor's contents or the bytes a decoder consumes.
+        let suffix_length = self.data_end_boundary - data_end;
+        let valid = if header.flags.data_descriptor {
+            let length =
+                if zip64_extra_field.is_some() { ZIP64_DATA_DESCRIPTOR_LENGTH } else { DATA_DESCRIPTOR_LENGTH };
+            suffix_length == length as u64 || suffix_length == (length + SIGNATURE_LENGTH) as u64
+        } else {
+            suffix_length == 0
+        };
+        if !valid {
+            return Err(ZipError::InvalidArchiveBoundary { offset: data_end });
         }
 
         Ok(())
