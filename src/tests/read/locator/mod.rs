@@ -74,3 +74,34 @@ async fn locator_buffer_boundary_test() {
     assert!(eocdr.is_ok());
     assert_eq!(eocdr.unwrap(), 4);
 }
+
+#[tokio::test]
+async fn locator_accepts_maximum_comment_and_padding_with_short_reads() {
+    use crate::base::read::seek::ZipFileReader;
+    use futures_lite::io::{BufReader, Cursor};
+
+    for nul_comment in [false, true] {
+        let mut data = include_bytes!("empty-with-max-comment.zip").to_vec();
+        if nul_comment {
+            // Declared comment bytes must not count toward the padding limit, even if all NUL.
+            data[22..].fill(0);
+        }
+        data.resize(data.len() + 4096, 0);
+        let reader = BufReader::new(super::ShortReader::new(Cursor::new(data), 3));
+        ZipFileReader::new(reader).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn locator_rejects_all_zero_input() {
+    use crate::base::read::io::locator::eocdr;
+    use crate::error::ZipError;
+    use futures_lite::io::Cursor;
+
+    let mut data = include_bytes!("empty.zip").to_vec();
+    data.fill(0);
+    data.resize(2 * 1024 * 1024, 0);
+    let mut reader = super::ShortReader::new(Cursor::new(data), 2048);
+    assert!(matches!(eocdr(&mut reader).await, Err(ZipError::UnableToLocateEOCDR)));
+    assert!(reader.bytes_read < 72 * 1024, "EOCD lookup read {} bytes", reader.bytes_read);
+}

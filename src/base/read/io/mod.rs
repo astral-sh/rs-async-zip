@@ -13,6 +13,9 @@ pub use combined_record::CombinedCentralDirectoryRecord;
 use crate::string::{StringEncoding, ZipString};
 use futures_lite::io::{AsyncRead, AsyncReadExt};
 
+/// Maximum NUL padding after the declared archive comment.
+const MAX_TRAILING_NUL_BYTES: usize = 4096;
+
 /// Read and return a dynamic length string from a reader which impls AsyncRead.
 pub(crate) async fn read_string<R>(reader: R, length: usize, encoding: StringEncoding) -> std::io::Result<ZipString>
 where
@@ -53,15 +56,19 @@ where
     Ok(())
 }
 
-/// Requires EOF after the archive comment, tolerating only trailing NUL padding.
-pub(crate) async fn validate_trailing_contents<R: AsyncRead + Unpin>(mut reader: R) -> crate::error::Result<()> {
+/// Requires EOF after the archive comment, tolerating at most 4 KiB of NUL padding.
+pub(crate) async fn validate_trailing_contents<R: AsyncRead + Unpin>(reader: R) -> crate::error::Result<()> {
+    // Read one byte beyond the limit to distinguish an exact-limit suffix from excess padding.
+    let mut reader = reader.take((MAX_TRAILING_NUL_BYTES + 1) as u64);
     let mut buffer = [0; 8192];
+    let mut padding = 0;
     loop {
         let read = reader.read(&mut buffer).await?;
         if read == 0 {
             return Ok(());
         }
-        if buffer[..read].iter().any(|&byte| byte != 0) {
+        padding += read;
+        if padding > MAX_TRAILING_NUL_BYTES || buffer[..read].iter().any(|&byte| byte != 0) {
             return Err(crate::error::ZipError::TrailingContents);
         }
     }

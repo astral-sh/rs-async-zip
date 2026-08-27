@@ -101,15 +101,34 @@ async fn malo_accept_zip64_eocd() {
 }
 
 #[tokio::test]
-async fn trailing_nul_padding_is_accepted() {
-    // Malo has no padding variants; append NULs to its unchanged stored archive.
-    for padding in [0, 1, 256, 1024] {
-        let mut data = include_bytes!("../malo/accept/store.zip").to_vec();
-        data.resize(data.len() + padding, 0);
-        for result in archive_results(&data).await {
-            result.unwrap();
+async fn trailing_nul_padding_limit_is_enforced() {
+    // Reuse the same boundary cases across classic ZIP, ZIP64, and all three reader modes.
+    for archive in [
+        include_bytes!("../malo/accept/store.zip").as_slice(),
+        #[cfg(feature = "deflate")]
+        include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
+    ] {
+        for padding in [0, 4096, 4097] {
+            let mut data = archive.to_vec();
+            data.resize(data.len() + padding, 0);
+            for result in archive_results(&data).await {
+                assert_eq!(result.is_ok(), padding <= 4096, "{padding} padding bytes: {result:?}");
+            }
         }
     }
+}
+
+#[tokio::test]
+async fn trailing_nul_validation_has_bounded_io() {
+    use crate::base::read::io::validate_trailing_contents;
+    use crate::error::ZipError;
+    use futures_lite::io::{repeat, AsyncReadExt};
+
+    // Short reads must accumulate toward the cap without reaching the artificial EOF.
+    let mut reader = super::ShortReader::new(repeat(0).take(8192), 3).with_eof_error(std::io::ErrorKind::Other);
+    let result = validate_trailing_contents(&mut reader).await;
+    assert!(matches!(result, Err(ZipError::TrailingContents)), "{result:?}");
+    assert_eq!(reader.bytes_read, 4097);
 }
 
 #[tokio::test]
