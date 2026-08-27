@@ -117,6 +117,8 @@ where
     validate_central_directory_binding(&eocdr, central_directory_boundary)?;
     assign_entry_data_boundaries(&mut entries, eocdr.offset_of_start_of_directory);
 
+    // Only NUL padding may follow the EOCDR and its comment. Drop the central-directory buffer and
+    // seek to the saved archive end so any bytes it read ahead are included in the trailing check.
     drop(buf);
     reader.seek(SeekFrom::Start(archive_end)).await?;
     io::validate_trailing_contents(&mut reader).await?;
