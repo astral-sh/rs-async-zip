@@ -5,7 +5,8 @@
 //!
 //! The same default record-range checks as the [seek reader](super::seek) apply. Entries may
 //! be opened concurrently and in any order; open every entry, including directories, to check
-//! all local ranges. Descriptor contents and actual compressed lengths are not checked.
+//! all local ranges. Reading to EOF also checks the compressed-byte count; descriptor contents
+//! are not checked.
 //!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided vector of bytes within an [`Arc`] to allow shared ownership.
@@ -131,7 +132,8 @@ impl ZipFileReader {
             cursor,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -145,7 +147,8 @@ impl ZipFileReader {
             cursor,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        );
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size());
 
         Ok(reader.into_with_entry(stored_entry))
     }

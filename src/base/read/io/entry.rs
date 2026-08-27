@@ -8,7 +8,7 @@ use crate::error::{Result, ZipError};
 use crate::spec::Compression;
 
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 
 use futures_lite::io::{AsyncBufRead, AsyncRead, AsyncReadExt, Take};
 use pin_project::pin_project;
@@ -20,11 +20,16 @@ pub struct WithEntry<'a>(OwnedEntry<'a>);
 pub struct WithoutEntry;
 
 /// A ZIP entry reader which may implement decompression.
+///
+/// Entries opened through seek, memory, or filesystem readers verify the compressed-byte count
+/// before a nonempty read reports EOF. Read the entry to EOF to perform this check; an empty or
+/// partial read does not validate its unread contents. Descriptor contents are not checked.
 #[pin_project]
 pub struct ZipEntryReader<'a, R, E> {
     #[pin]
     reader: HashedReader<CompressedReader<Counting<Take<OwnedReader<'a, R>>>>>,
     entry: E,
+    expected_compressed_size: Option<u64>,
 }
 
 impl<'a, R> ZipEntryReader<'a, R, WithoutEntry>
@@ -35,7 +40,7 @@ where
     pub(crate) fn new_with_owned(reader: R, compression: Compression, size: u64) -> Self {
         let reader =
             HashedReader::new(CompressedReader::new(Counting::new(OwnedReader::Owned(reader).take(size)), compression));
-        Self { reader, entry: WithoutEntry }
+        Self { reader, entry: WithoutEntry, expected_compressed_size: None }
     }
 
     /// Constructs a new entry reader from its required parameters (incl. a mutable borrow of an R).
@@ -44,15 +49,28 @@ where
             Counting::new(OwnedReader::Borrow(reader).take(size)),
             compression,
         ));
-        Self { reader, entry: WithoutEntry }
+        Self { reader, entry: WithoutEntry, expected_compressed_size: None }
+    }
+
+    pub(crate) fn with_expected_compressed_size(mut self, size: u64) -> Self {
+        self.expected_compressed_size = Some(size);
+        self
     }
 
     pub(crate) fn into_with_entry(self, entry: &'a ZipEntry) -> ZipEntryReader<'a, R, WithEntry<'a>> {
-        ZipEntryReader { reader: self.reader, entry: WithEntry(OwnedEntry::Borrow(entry)) }
+        ZipEntryReader {
+            reader: self.reader,
+            entry: WithEntry(OwnedEntry::Borrow(entry)),
+            expected_compressed_size: self.expected_compressed_size,
+        }
     }
 
     pub(crate) fn into_with_entry_owned(self, entry: ZipEntry) -> ZipEntryReader<'a, R, WithEntry<'a>> {
-        ZipEntryReader { reader: self.reader, entry: WithEntry(OwnedEntry::Owned(entry)) }
+        ZipEntryReader {
+            reader: self.reader,
+            entry: WithEntry(OwnedEntry::Owned(entry)),
+            expected_compressed_size: self.expected_compressed_size,
+        }
     }
 }
 
@@ -61,7 +79,23 @@ where
     R: AsyncBufRead + Unpin,
 {
     fn poll_read(self: Pin<&mut Self>, c: &mut Context<'_>, b: &mut [u8]) -> Poll<std::io::Result<usize>> {
-        self.project().reader.poll_read(c, b)
+        if b.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        let mut this = self.project();
+        let read = ready!(this.reader.as_mut().poll_read(c, b))?;
+        if read == 0 {
+            if let Some(expected) = *this.expected_compressed_size {
+                let actual = this.reader.get_mut().inner().inner().bytes_read();
+                if actual != expected {
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        ZipError::CompressedSizeMismatch { expected, actual },
+                    )));
+                }
+            }
+        }
+        Poll::Ready(Ok(read))
     }
 }
 

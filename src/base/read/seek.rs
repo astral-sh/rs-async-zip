@@ -5,7 +5,8 @@
 //!
 //! Construction requires the indexed local records to start at byte zero. Opening an entry
 //! checks that its declared header, data, and optional descriptor span ends exactly at the next
-//! indexed record. It does not validate compressed bytes consumed or descriptor contents.
+//! indexed record. Reading to EOF also checks the compressed-byte count; descriptor contents
+//! are not checked.
 //! Open every entry, including directories, to check all local ranges; the source must remain
 //! unchanged after construction. No separate header walk is performed.
 //!
@@ -103,7 +104,8 @@ where
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -116,7 +118,8 @@ where
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        );
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size());
 
         Ok(reader.into_with_entry(stored_entry))
     }
@@ -135,7 +138,8 @@ where
             self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
     }
 }
 

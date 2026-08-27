@@ -37,3 +37,5 @@ No Malo fixture is read or modified by the generator.
 | `descriptor-index-{missing,conflict}.zip` | A missing local-header reference or duplicate references with conflicting compressed lengths. |
 | `empty-with-suffix.zip` | Existing trailing-content rejection still applies to empty archives. |
 | `{stored,zip64}-padding-{4096,4097}.zip`, `{stored,zip64}-nonzero-suffix.zip` | Existing suffix tests cover the NUL-padding cap and nonzero data after padding without modifying Malo inputs. |
+| `deflate-with-junk.zip` | The declared compressed span includes one byte after Deflate EOF; opening succeeds but entry completion rejects it. |
+| `stored-truncated.zip` | The last payload byte is absent. The test supplies metadata previously read from `stored.zip` to model a source truncated after archive construction. |
