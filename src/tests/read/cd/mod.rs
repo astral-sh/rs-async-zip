@@ -450,6 +450,14 @@ async fn entry_validation_accepts_only_descriptor_sized_gaps() {
         for result in extraction_results(data).await {
             assert_eq!(result.is_ok(), accepted, "{name}: {result:?}");
         }
+        // Matching record lengths are insufficient: each descriptor field must agree with
+        // the directory. Exercise both classic and ZIP64 descriptors.
+        for field in [4, 8, directory - descriptor - 1] {
+            let mut data = archive.to_vec();
+            data[descriptor + field] ^= 1;
+            let results = extraction_results(&data).await;
+            assert!(results.iter().all(Result::is_err), "field {field}: {results:?}");
+        }
     }
 }
 
@@ -459,6 +467,64 @@ async fn entry_validation_requires_an_unambiguous_descriptor_length() {
     for (name, data) in [fixture!("descriptor-index-missing.zip"), fixture!("descriptor-index-conflict.zip")] {
         let results = extraction_results(data).await;
         assert!(results.iter().all(Result::is_err), "{name}: {results:?}");
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_checks_stored_data_descriptors() {
+    use crate::base::read::seek::ZipFileReader;
+    use crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE;
+    use futures_lite::io::{AsyncReadExt, BufReader, Cursor};
+
+    // A CRC can equal the optional signature. The record length must disambiguate it.
+    let signature_crc_payload = b"\xac\x0a\x7a\xd5";
+    assert_eq!(crc32fast::hash(signature_crc_payload), DATA_DESCRIPTOR_SIGNATURE);
+    for payload in [b"hello".as_slice(), b"", signature_crc_payload] {
+        for signed in [true, false] {
+            let mut data = malo_store_with_descriptor(payload);
+            let mut directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+            if !signed {
+                data.drain(directory - 16..directory - 12);
+                directory -= 4;
+                let end = end_record_offset(&data);
+                write_u32(&mut data, end + 16, directory as u32);
+            }
+            for result in extraction_results(&data).await {
+                result.unwrap();
+            }
+            let mut reader = ZipFileReader::new(Cursor::new(&data)).await.unwrap();
+            let file = reader.file().clone();
+            let mut entry = reader.reader_with_entry(0).await.unwrap();
+            let mut actual = Vec::new();
+            entry.read_to_end_checked(&mut actual).await.unwrap();
+            assert_eq!(actual, payload);
+            assert_eq!(entry.bytes_read(), payload.len() as u64);
+            assert_eq!(entry.read(&mut [0; 1]).await.unwrap(), 0);
+            drop(entry);
+            assert_eq!(reader.into_inner().position(), directory as u64);
+
+            // A source that fails while finishing the descriptor must not report entry EOF.
+            for error in [std::io::ErrorKind::UnexpectedEof, std::io::ErrorKind::BrokenPipe] {
+                let source = super::ShortReader::new(Cursor::new(&data[..directory - 1]), 1).with_eof_error(error);
+                let mut reader = ZipFileReader::from_raw_parts(BufReader::with_capacity(1, source), file.clone());
+                let mut entry = reader.reader_without_entry(0).await.unwrap();
+                assert_eq!(entry.read_to_end(&mut Vec::new()).await.unwrap_err().kind(), error);
+            }
+
+            // Partial reads need not validate an unread descriptor, but an ordinary read to EOF
+            // must do so. Empty reads must not trigger completion or consume descriptor bytes.
+            data[directory - 1] ^= 1;
+            let results = extraction_results(&data).await;
+            assert!(results.iter().all(Result::is_err), "{results:?}");
+            let source = BufReader::with_capacity(1, super::ShortReader::new(Cursor::new(&data), 1).with_pending());
+            let mut reader = ZipFileReader::new(source).await.unwrap();
+            let mut entry = reader.reader_without_entry(0).await.unwrap();
+            assert_eq!(entry.read(&mut []).await.unwrap(), 0);
+            entry.read_exact(&mut vec![0; payload.len()]).await.unwrap();
+            assert_eq!(entry.read(&mut []).await.unwrap(), 0);
+            assert!(entry.read(&mut [0; 1]).await.is_err(), "corrupt descriptor accepted at EOF");
+            assert!(entry.read(&mut [0; 1]).await.is_err(), "descriptor error was lost on a repeated read");
+        }
     }
 }
 
