@@ -3,10 +3,9 @@
 
 //! A concurrent ZIP reader which acts over an owned vector of bytes.
 //!
-//! The same default record-range checks as the [seek reader](super::seek) apply. Entries may
-//! be opened concurrently and in any order; open every entry, including directories, to check
-//! all local ranges. Reading to EOF also checks the compressed-byte count; descriptor contents
-//! are not checked.
+//! The same default boundary validation as the [seek reader](super::seek) applies. Each entry
+//! validates independently, so entries may be read concurrently and in any order. Read every
+//! entry to EOF, including directories, to validate all archive boundaries.
 //!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided vector of bytes within an [`Arc`] to allow shared ownership.
@@ -126,14 +125,14 @@ impl ZipFileReader {
         let stored_entry = self.inner.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
         let mut cursor = Cursor::new(&self.inner.data[..]);
 
-        stored_entry.seek_to_data_offset(&mut cursor).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut cursor).await?;
 
         Ok(ZipEntryReader::new_with_owned(
             cursor,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
+        .with_validation(validation))
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -141,14 +140,14 @@ impl ZipFileReader {
         let stored_entry = self.inner.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
         let mut cursor = Cursor::new(&self.inner.data[..]);
 
-        stored_entry.seek_to_data_offset(&mut cursor).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut cursor).await?;
 
         let reader = ZipEntryReader::new_with_owned(
             cursor,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size());
+        .with_validation(validation);
 
         Ok(reader.into_with_entry(stored_entry))
     }

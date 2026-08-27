@@ -59,7 +59,7 @@ where
         }
     }
 
-    /// Consumes this reader and returns the inner value.
+    /// Returns a reference to the underlying compressed input.
     pub(crate) fn inner(&self) -> &R {
         match self {
             CompressedReader::Stored(inner) => inner,
@@ -75,6 +75,25 @@ where
             CompressedReader::Zstd(inner) => inner.get_ref(),
             #[cfg(feature = "xz")]
             CompressedReader::Xz(inner) => inner.get_ref(),
+        }
+    }
+
+    /// Returns mutable access to the input, for reading a descriptor after decompression ends.
+    pub(crate) fn inner_mut(&mut self) -> &mut R {
+        match self {
+            CompressedReader::Stored(inner) => inner,
+            #[cfg(feature = "deflate")]
+            CompressedReader::Deflate(inner) => inner.get_mut(),
+            #[cfg(feature = "deflate64")]
+            CompressedReader::Deflate64(inner) => inner.get_mut(),
+            #[cfg(feature = "bzip2")]
+            CompressedReader::Bz(inner) => inner.get_mut(),
+            #[cfg(feature = "lzma")]
+            CompressedReader::Lzma(inner) => inner.get_mut(),
+            #[cfg(feature = "zstd")]
+            CompressedReader::Zstd(inner) => inner.get_mut(),
+            #[cfg(feature = "xz")]
+            CompressedReader::Xz(inner) => inner.get_mut(),
         }
     }
 

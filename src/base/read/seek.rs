@@ -3,12 +3,11 @@
 
 //! A ZIP reader which acts over a seekable source.
 //!
-//! Construction requires the indexed local records to start at byte zero. Opening an entry
-//! checks that its declared header, data, and optional descriptor span ends exactly at the next
-//! indexed record. Reading to EOF also checks the compressed-byte count; descriptor contents
-//! are not checked.
-//! Open every entry, including directories, to check all local ranges; the source must remain
-//! unchanged after construction. No separate header walk is performed.
+//! Construction validates the directory and footer and requires the indexed records to start
+//! at byte zero. Opening each entry validates its local header and exact boundary; reading it
+//! to EOF validates its compressed length and descriptor. Read every entry, including directories,
+//! to validate all archive boundaries. Partial reads do not validate unread records. The source must
+//! remain unchanged after construction.
 //!
 //! ### Example
 //! ```no_run
@@ -62,7 +61,8 @@ where
     /// Constructs a new ZIP reader from a seekable source.
     ///
     /// The source must be finite or bounded to a single archive. At most 4 KiB of NUL padding is
-    /// permitted after the end record's declared comment. Local headers are not walked during construction.
+    /// permitted after the end record's declared comment. The first indexed local header must start
+    /// at byte zero; local records are validated as entries are opened and read, without a separate walk.
     /// Archive and entry comments containing bytes `0x01` through `0x08` are conservatively rejected to
     /// exclude embedded ZIP records; this does not prohibit ZIP files stored as entries.
     pub async fn new(mut reader: R) -> Result<ZipFileReader<R>> {
@@ -98,28 +98,28 @@ where
     /// Returns a new entry reader if the provided index is valid.
     pub async fn reader_without_entry(&mut self, index: usize) -> Result<ZipEntryReader<'_, R, WithoutEntry>> {
         let stored_entry = self.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
-        stored_entry.seek_to_data_offset(&mut self.reader).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut self.reader).await?;
 
         Ok(ZipEntryReader::new_with_borrow(
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
+        .with_validation(validation))
     }
 
     /// Returns a new entry reader if the provided index is valid.
     pub async fn reader_with_entry(&mut self, index: usize) -> Result<ZipEntryReader<'_, R, WithEntry<'_>>> {
         let stored_entry = self.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
 
-        stored_entry.seek_to_data_offset(&mut self.reader).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut self.reader).await?;
 
         let reader = ZipEntryReader::new_with_borrow(
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size());
+        .with_validation(validation);
 
         Ok(reader.into_with_entry(stored_entry))
     }
@@ -132,14 +132,14 @@ where
     {
         let stored_entry = self.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
 
-        stored_entry.seek_to_data_offset(&mut self.reader).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut self.reader).await?;
 
         Ok(ZipEntryReader::new_with_owned(
             self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
+        .with_validation(validation))
     }
 }
 

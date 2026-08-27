@@ -7,15 +7,13 @@ use std::ops::Deref;
 
 use futures_lite::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, SeekFrom};
 
+use crate::base::read::io::entry::EntryValidation;
 use crate::base::read::{get_combined_sizes, get_zip64_extra_field};
 use crate::entry::builder::ZipEntryBuilder;
 use crate::error::{Result, ZipError};
 use crate::spec::{
     attribute::AttributeCompatibility,
-    consts::{
-        DATA_DESCRIPTOR_LENGTH, LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH,
-        ZIP64_DATA_DESCRIPTOR_LENGTH,
-    },
+    consts::{LFH_LENGTH, LFH_SIGNATURE, NON_ZIP64_MAX_SIZE, SIGNATURE_LENGTH},
     header::{ExtraField, LocalFileHeader},
     parse::parse_extra_fields,
     Compression,
@@ -203,7 +201,10 @@ impl StoredZipEntry {
     }
 
     /// Seek to the offset in bytes where the data of the entry starts.
-    pub(crate) async fn seek_to_data_offset<R: AsyncRead + AsyncSeek + Unpin>(&self, mut reader: &mut R) -> Result<()> {
+    pub(crate) async fn seek_to_data_offset<R: AsyncRead + AsyncSeek + Unpin>(
+        &self,
+        mut reader: &mut R,
+    ) -> Result<EntryValidation> {
         // Seek to the header
         reader.seek(SeekFrom::Start(self.file_offset)).await?;
 
@@ -278,22 +279,8 @@ impl StoredZipEntry {
             return Err(ZipError::LocalFileHeaderSizeMismatch);
         }
 
-        // The declared local record must fill its indexed span. A descriptor entry reserves
-        // exactly one descriptor of the local header's width, with an optional signature.
-        // This checks the range, not the descriptor's contents or the bytes a decoder consumes.
-        let suffix_length = self.data_end_boundary - data_end;
-        let valid = if header.flags.data_descriptor {
-            let length =
-                if zip64_extra_field.is_some() { ZIP64_DATA_DESCRIPTOR_LENGTH } else { DATA_DESCRIPTOR_LENGTH };
-            suffix_length == length as u64 || suffix_length == (length + SIGNATURE_LENGTH) as u64
-        } else {
-            suffix_length == 0
-        };
-        if !valid {
-            return Err(ZipError::InvalidArchiveBoundary { offset: data_end });
-        }
-
-        Ok(())
+        EntryValidation::new(&self.entry, zip64_extra_field.is_some(), self.data_end_boundary - data_end)
+            .ok_or(ZipError::InvalidArchiveBoundary { offset: data_end })
     }
 }
 

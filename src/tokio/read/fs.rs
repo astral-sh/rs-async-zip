@@ -3,9 +3,9 @@
 
 //! A concurrent ZIP reader which acts over a file system path.
 //!
-//! The same default record-range checks as the [`crate::base::read::seek`] reader apply.
-//! Open every entry, including directories, to check all local ranges. Reading to EOF checks
-//! the compressed-byte count, but not descriptor contents. The source must remain unchanged.
+//! The same default boundary validation as the [`crate::base::read::seek`] reader applies.
+//! Entries validate independently and may be read in parallel. Read every entry to EOF, including
+//! directories, to validate all archive boundaries; the file must remain unchanged after construction.
 //!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided path within an [`Arc`] to allow shared ownership.
@@ -135,14 +135,14 @@ impl ZipFileReader {
         let stored_entry = self.inner.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
         let mut fs_file = BufReader::new(File::open(&self.inner.path).await?).compat();
 
-        stored_entry.seek_to_data_offset(&mut fs_file).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut fs_file).await?;
 
         Ok(ZipEntryReader::new_with_owned(
             fs_file,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
+        .with_validation(validation))
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -153,14 +153,14 @@ impl ZipFileReader {
         let stored_entry = self.inner.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
         let mut fs_file = BufReader::new(File::open(&self.inner.path).await?).compat();
 
-        stored_entry.seek_to_data_offset(&mut fs_file).await?;
+        let validation = stored_entry.seek_to_data_offset(&mut fs_file).await?;
 
         let reader = ZipEntryReader::new_with_owned(
             fs_file,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
         )
-        .with_expected_compressed_size(stored_entry.entry.compressed_size());
+        .with_validation(validation);
 
         Ok(reader.into_with_entry(stored_entry))
     }

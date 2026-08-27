@@ -39,3 +39,10 @@ No Malo fixture is read or modified by the generator.
 | `{stored,zip64}-padding-{4096,4097}.zip`, `{stored,zip64}-nonzero-suffix.zip` | Existing suffix tests cover the NUL-padding cap and nonzero data after padding without modifying Malo inputs. |
 | `deflate-with-junk.zip` | The declared compressed span includes one byte after Deflate EOF; opening succeeds but entry completion rejects it. |
 | `stored-truncated.zip` | The last payload byte is absent. The test supplies metadata previously read from `stored.zip` to model a source truncated after archive construction. |
+| `descriptor-*-signed-bad-{signature,crc,compressed-size,uncompressed-size}.zip` | A descriptor has the right span but one incorrect signature or field. |
+| `descriptor-stored-{empty,signature-crc}-{signed,unsigned}.zip` | Empty entries and a four-byte payload whose CRC is the descriptor signature; both descriptor forms must finish correctly. |
+| `descriptor-*-{signed,unsigned}-bad-uncompressed-size.zip` | Corrupt counterparts for partial reads, empty reads, and repeated errors at entry completion. |
+
+The descriptor I/O tests also limit reads to a prefix of a valid fixture to inject
+EOF or a broken pipe inside its descriptor. These tests model reader failures;
+they do not rewrite archive bytes.

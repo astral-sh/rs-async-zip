@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import binascii
 import io
 from pathlib import Path
 import struct
@@ -192,6 +193,35 @@ def fixtures():
     result["deflate-with-junk.zip"] = data
     # Used with the complete stored.zip directory to simulate a truncated source.
     result["stored-truncated.zip"] = stored[: directory_offset(stored) - 1]
+
+    for name in ["stored", "deflate", "deflate-zip64"]:
+        original = result[f"descriptor-{name}-signed.zip"]
+        start = descriptor_offset(original)
+        fields = {
+            "signature": start,
+            "crc": start + 4,
+            "compressed-size": start + 8,
+            "uncompressed-size": directory_offset(original) - 1,
+        }
+        for field, offset in fields.items():
+            data = original.copy()
+            data[offset] ^= 1
+            result[f"descriptor-{name}-signed-bad-{field}.zip"] = data
+
+    # An unsigned descriptor may start with the signature value as its CRC.
+    signature_crc_payload = b"\xac\x0a\x7a\xd5"
+    assert binascii.crc32(signature_crc_payload) == 0x08074B50
+    for name, payload in [
+        ("stored", b"hello"),
+        ("stored-empty", b""),
+        ("stored-signature-crc", signature_crc_payload),
+    ]:
+        signed = archive((("entry", payload),), descriptor=True)
+        for variant, original in [("signed", signed), ("unsigned", remove_descriptor_bytes(signed, 4))]:
+            result[f"descriptor-{name}-{variant}.zip"] = original
+            data = original.copy()
+            data[directory_offset(data) - 1] ^= 1
+            result[f"descriptor-{name}-{variant}-bad-uncompressed-size.zip"] = data
     return result
 
 

@@ -23,6 +23,10 @@ impl<R> Counting<R> {
         self.bytes
     }
 
+    pub(crate) fn inner_mut(&mut self) -> &mut R {
+        &mut self.inner
+    }
+
     /// Consumes the [`Counting`] reader and returns the inner reader.
     pub fn into_inner(self) -> R {
         self.inner
