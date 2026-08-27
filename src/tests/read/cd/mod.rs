@@ -280,36 +280,71 @@ async fn extraction_results(data: &[u8]) -> Vec<crate::error::Result<()>> {
     use crate::base::read::{mem, seek};
     use futures_lite::io::{copy, sink, AsyncBufRead, AsyncSeek, BufReader, Cursor};
 
-    async fn extract_seek<R: AsyncBufRead + AsyncSeek + Unpin>(source: R) -> crate::error::Result<()> {
+    async fn extract_seek<R: AsyncBufRead + AsyncSeek + Unpin>(
+        source: R,
+        with_entry: bool,
+    ) -> crate::error::Result<()> {
         let mut reader = seek::ZipFileReader::new(source).await?;
         for index in 0..reader.file().entries().len() {
-            copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            if with_entry {
+                copy(&mut reader.reader_with_entry(index).await?, &mut sink()).await?;
+            } else {
+                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            }
         }
         Ok(())
     }
 
-    vec![
-        extract_seek(Cursor::new(data)).await,
-        extract_seek(BufReader::with_capacity(3, super::ShortReader::new(Cursor::new(data), 3))).await,
+    // Complete ordinary entry reads, including directory entries. No separate validation call.
+    let mut results = vec![
         async {
-            let reader = mem::ZipFileReader::new(data.to_vec()).await?;
-            for index in 0..reader.file().entries().len() {
-                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            let file = seek::ZipFileReader::new(Cursor::new(data)).await?.file().clone();
+            for index in 0..file.entries().len() {
+                let reader = seek::ZipFileReader::from_raw_parts(Cursor::new(data), file.clone());
+                copy(&mut reader.into_entry(index).await?, &mut sink()).await?;
             }
             Ok(())
         }
         .await,
+    ];
+    for with_entry in [false, true] {
+        results.push(extract_seek(Cursor::new(data), with_entry).await);
+        let short = BufReader::with_capacity(3, super::ShortReader::new(Cursor::new(data), 3).with_pending());
+        results.push(extract_seek(short, with_entry).await);
+        results.push(
+            async {
+                let reader = mem::ZipFileReader::new(data.to_vec()).await?;
+                for index in 0..reader.file().entries().len() {
+                    if with_entry {
+                        copy(&mut reader.reader_with_entry(index).await?, &mut sink()).await?;
+                    } else {
+                        copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+                    }
+                }
+                Ok(())
+            }
+            .await,
+        );
         #[cfg(feature = "tokio-fs")]
-        async {
+        {
             let fixture = FixtureFile::new(data);
-            let reader = crate::tokio::read::fs::ZipFileReader::new(&fixture.0).await?;
-            for index in 0..reader.file().entries().len() {
-                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
-            }
-            Ok(())
+            results.push(
+                async {
+                    let reader = crate::tokio::read::fs::ZipFileReader::new(&fixture.0).await?;
+                    for index in 0..reader.file().entries().len() {
+                        if with_entry {
+                            copy(&mut reader.reader_with_entry(index).await?, &mut sink()).await?;
+                        } else {
+                            copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+                        }
+                    }
+                    Ok(())
+                }
+                .await,
+            );
         }
-        .await,
-    ]
+    }
+    results
 }
 
 #[tokio::test]
@@ -425,6 +460,41 @@ async fn entry_validation_requires_an_unambiguous_descriptor_length() {
         let results = extraction_results(data).await;
         assert!(results.iter().all(Result::is_err), "{name}: {results:?}");
     }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn entry_completion_rejects_unconsumed_compressed_bytes() {
+    // Inflate stops at the end of its stream. A declared compressed size that also covers
+    // junk must not make that junk count as validated entry data.
+    let mut data = include_bytes!("../malo/accept/deflate.zip").to_vec();
+    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    data.insert(directory, b'X');
+    let directory = directory + 1;
+    let compressed = read_u32(&data, directory + 20) + 1;
+    write_u32(&mut data, 18, compressed);
+    write_u32(&mut data, directory + 20, compressed);
+    let end = end_record_offset(&data);
+    write_u32(&mut data, end + 16, directory as u32);
+    let results = extraction_results(&data).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn entry_completion_rejects_truncated_stored_payload() {
+    use crate::base::read::seek::ZipFileReader;
+    use futures_lite::io::{AsyncReadExt, Cursor};
+
+    let data = malo_store_with_payload(b"hello");
+    let file = ZipFileReader::new(Cursor::new(&data)).await.unwrap().file().clone();
+    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    // Simulate a source ending before the data promised by its previously parsed directory.
+    let mut reader = ZipFileReader::from_raw_parts(Cursor::new(&data[..directory - 1]), file);
+    let mut entry = reader.reader_without_entry(0).await.unwrap();
+    assert_eq!(entry.read(&mut []).await.unwrap(), 0);
+    let error = entry.read_to_end(&mut Vec::new()).await.unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(entry.read(&mut [0; 1]).await.is_err());
 }
 
 #[tokio::test]
