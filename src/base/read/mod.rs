@@ -120,7 +120,7 @@ where
     // Only NUL padding may follow the EOCDR and its comment. Drop the central-directory buffer and
     // seek to the saved archive end so any bytes it read ahead are included in the trailing check.
     drop(buf);
-    io::validate_archive_comment(&comment)?;
+    io::validate_comment(&comment)?;
     reader.seek(SeekFrom::Start(archive_end)).await?;
     io::validate_trailing_contents(&mut reader).await?;
 
@@ -390,7 +390,7 @@ where
     }
 
     let filename = detect_filename(filename_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
-    let comment = detect_comment(comment_basic, header.flags.filename_unicode, extra_fields.as_ref());
+    let comment = detect_comment(comment_basic, header.flags.filename_unicode, extra_fields.as_ref())?;
 
     let entry = ZipEntry {
         filename,
@@ -482,8 +482,8 @@ where
     Ok(Some(entry))
 }
 
-fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> ZipString {
-    if basic_is_utf8 {
+fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> Result<ZipString> {
+    let comment = if basic_is_utf8 {
         ZipString::new(basic, StringEncoding::Utf8)
     } else {
         let unicode_extra = extra_fields.iter().find_map(|field| match field {
@@ -509,7 +509,9 @@ fn detect_comment(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraFiel
                 ZipString::new(basic, StringEncoding::Raw)
             }
         }
-    }
+    };
+    io::validate_comment(&comment)?;
+    Ok(comment)
 }
 
 fn detect_filename(basic: Vec<u8>, basic_is_utf8: bool, extra_fields: &[ExtraField]) -> Result<ZipString> {

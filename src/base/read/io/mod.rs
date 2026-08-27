@@ -74,10 +74,10 @@ pub(crate) async fn validate_trailing_contents<R: AsyncRead + Unpin>(reader: R) 
     }
 }
 
-/// Conservatively excludes embedded ZIP records from the archive comment, matching uv's policy.
-/// Entry comments and file contents are not subject to this restriction.
-pub(crate) fn validate_archive_comment(comment: &ZipString) -> crate::error::Result<()> {
-    if comment.as_bytes().iter().any(|byte| (1..=8).contains(byte)) {
+/// Conservatively excludes embedded ZIP records from archive and entry comments.
+/// Checks both encodings when an entry has an Info-ZIP Unicode comment.
+pub(crate) fn validate_comment(comment: &ZipString) -> crate::error::Result<()> {
+    if comment.as_bytes().iter().chain(comment.alternative().unwrap_or_default()).any(|byte| (1..=8).contains(byte)) {
         return Err(crate::error::ZipError::ZipInZip);
     }
     Ok(())

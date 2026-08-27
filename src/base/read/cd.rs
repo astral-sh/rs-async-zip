@@ -2,7 +2,7 @@ use futures_lite::io::{AsyncRead, AsyncReadExt};
 
 use crate::base::read::counting::Counting;
 use crate::base::read::io::CombinedCentralDirectoryRecord;
-use crate::base::read::{detect_filename, get_combined_sizes, get_zip64_extra_field, io};
+use crate::base::read::{detect_comment, detect_filename, get_combined_sizes, get_zip64_extra_field, io};
 use crate::error::{Result, ZipError};
 use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, NON_ZIP64_MAX_SIZE, ZIP64_EOCDR_SIGNATURE};
 use crate::spec::header::{
@@ -104,8 +104,8 @@ where
     /// been reached and at most 4 KiB of NUL padding remains before EOF. The source must be finite
     /// or bounded to a single archive; returning the end record consumes that padding. Zeros in
     /// the declared comment do not count toward the padding limit.
-    /// Archive comments containing bytes `0x01` through `0x08` are rejected as a conservative
-    /// defense against embedded ZIP records. Entry comments are not restricted this way.
+    /// Archive and entry comments containing bytes `0x01` through `0x08` are rejected as a conservative
+    /// defense against embedded ZIP records. This does not prohibit ZIP files stored as entries.
     pub async fn next(&mut self) -> Result<Entry> {
         // Skip the first `CDH_SIGNATURE`. The `CentralDirectoryReader` is assumed to pick up from
         // where the streaming `ZipFileReader` left off, which means that the first record's
@@ -147,7 +147,7 @@ where
                     }
 
                     let record = CombinedCentralDirectoryRecord::try_from(&eocdr)?;
-                    io::validate_archive_comment(&comment)?;
+                    io::validate_comment(&comment)?;
                     io::validate_trailing_contents(&mut self.reader).await?;
                     return Ok(Entry::EndOfCentralDirectoryRecord { record, comment, extensible: false });
                 }
@@ -217,7 +217,7 @@ where
                         ));
                     }
 
-                    io::validate_archive_comment(&comment)?;
+                    io::validate_comment(&comment)?;
                     io::validate_trailing_contents(&mut self.reader).await?;
                     return Ok(Entry::EndOfCentralDirectoryRecord { record: combined, comment, extensible });
                 }
@@ -241,8 +241,9 @@ where
         )?;
         let zip64_extra_field = get_zip64_extra_field(&extra_fields);
 
-        // We read the comment but drop it, since we don't need it for anything.
-        io::skip_bytes(&mut self.reader, header.file_comment_length.into()).await?;
+        // Validate the comment even though streaming readers do not return it.
+        let comment_basic = io::read_bytes(&mut self.reader, header.file_comment_length.into()).await?;
+        detect_comment(comment_basic, header.flags.filename_unicode, &extra_fields)?;
 
         // Reconcile the compressed size, uncompressed size, and file offset, using ZIP64 if necessary.
         let (uncompressed_size, compressed_size) =
