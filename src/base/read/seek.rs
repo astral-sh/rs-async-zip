@@ -3,6 +3,12 @@
 
 //! A ZIP reader which acts over a seekable source.
 //!
+//! Construction requires the indexed local records to start at byte zero. Opening an entry
+//! checks that its declared header, data, and optional descriptor span ends exactly at the next
+//! indexed record. It does not validate compressed bytes consumed or descriptor contents.
+//! Open every entry, including directories, to check all local ranges; the source must remain
+//! unchanged after construction. No separate header walk is performed.
+//!
 //! ### Example
 //! ```no_run
 //! # use async_zip::base::read::seek::ZipFileReader;
@@ -65,6 +71,7 @@ where
 
     /// Constructs a ZIP reader from a seekable source and ZIP file information derived from that source.
     ///
+    /// This bypasses construction-time validation of the directory and footer.
     /// Providing a [`ZipFile`] that wasn't derived from that source may lead to inaccurate parsing.
     pub fn from_raw_parts(reader: R, file: ZipFile) -> ZipFileReader<R> {
         ZipFileReader { reader, file: Arc::new(file) }

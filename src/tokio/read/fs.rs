@@ -3,6 +3,10 @@
 
 //! A concurrent ZIP reader which acts over a file system path.
 //!
+//! The same default record-range checks as the [`crate::base::read::seek`] reader apply.
+//! Open every entry, including directories, to check all local ranges. Descriptor contents and
+//! actual compressed lengths are not checked; the source must remain unchanged after construction.
+//!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided path within an [`Arc`] to allow shared ownership.
 //! - Constructing a new [`File`] from the path when reading.
@@ -104,6 +108,7 @@ impl ZipFileReader {
 
     /// Constructs a ZIP reader from a file system path and ZIP file information derived from that path.
     ///
+    /// This bypasses construction-time validation of the directory and footer.
     /// Providing a [`ZipFile`] that wasn't derived from that path may lead to inaccurate parsing.
     pub fn from_raw_parts<P>(path: P, file: ZipFile) -> ZipFileReader
     where

@@ -24,11 +24,12 @@ struct ShortReader<R> {
     max_read: usize,
     eof_error: Option<std::io::ErrorKind>,
     bytes_read: usize,
+    seeks: usize,
 }
 
 impl<R> ShortReader<R> {
     fn new(inner: R, max_read: usize) -> Self {
-        Self { inner, max_read, eof_error: None, bytes_read: 0 }
+        Self { inner, max_read, eof_error: None, bytes_read: 0, seeks: 0 }
     }
 
     fn with_eof_error(mut self, kind: std::io::ErrorKind) -> Self {
@@ -55,7 +56,11 @@ impl<R: AsyncRead + Unpin> AsyncRead for ShortReader<R> {
 
 impl<R: AsyncSeek + Unpin> AsyncSeek for ShortReader<R> {
     fn poll_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, pos: SeekFrom) -> Poll<Result<u64>> {
-        Pin::new(&mut self.inner).poll_seek(cx, pos)
+        let result = Pin::new(&mut self.inner).poll_seek(cx, pos);
+        if result.is_ready() {
+            self.seeks += 1;
+        }
+        result
     }
 }
 

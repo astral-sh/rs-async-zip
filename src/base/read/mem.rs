@@ -3,6 +3,10 @@
 
 //! A concurrent ZIP reader which acts over an owned vector of bytes.
 //!
+//! The same default record-range checks as the [seek reader](super::seek) apply. Entries may
+//! be opened concurrently and in any order; open every entry, including directories, to check
+//! all local ranges. Descriptor contents and actual compressed lengths are not checked.
+//!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided vector of bytes within an [`Arc`] to allow shared ownership.
 //! - Wrapping this [`Arc`] around a [`Cursor`] when reading (as the [`Arc`] can deref and coerce into a `&[u8]`).
@@ -100,6 +104,7 @@ impl ZipFileReader {
 
     /// Constructs a ZIP reader from an owned vector of bytes and ZIP file information derived from those bytes.
     ///
+    /// This bypasses construction-time validation of the directory and footer.
     /// Providing a [`ZipFile`] that wasn't derived from those bytes may lead to inaccurate parsing.
     pub fn from_raw_parts(data: Vec<u8>, file: ZipFile) -> ZipFileReader {
         ZipFileReader { inner: Arc::new(Inner { data, file }) }

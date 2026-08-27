@@ -5,6 +5,13 @@ use crate::spec::version::MAX_SUPPORTED_EXTRACT_VERSION;
 
 const UNSUPPORTED_EXTRACT_VERSION: u16 = MAX_SUPPORTED_EXTRACT_VERSION + 1;
 
+// Keep fixture names in assertion failures without duplicating their paths.
+macro_rules! fixture {
+    ($name:literal) => {
+        ($name, include_bytes!(concat!("fixtures/", $name)).as_slice())
+    };
+}
+
 /// Consume both streaming phases, including the terminal end record.
 pub(super) async fn read_streamed_archive<R: futures_lite::io::AsyncBufRead + Unpin>(
     mut reader: R,
@@ -72,14 +79,16 @@ async fn malo_reject_dupe_eocd() {
 
 #[tokio::test]
 async fn malo_accept_store() {
-    for result in archive_results(include_bytes!("../malo/accept/store.zip")).await {
+    let data = include_bytes!("../malo/accept/store.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
 
 #[tokio::test]
 async fn malo_accept_comment() {
-    for result in archive_results(include_bytes!("../malo/accept/comment.zip")).await {
+    let data = include_bytes!("../malo/accept/comment.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
@@ -103,7 +112,7 @@ async fn malo_malicious_zipinzip() {
     let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/malicious/zipinzip.zip")).await;
     assert!(matches!(streaming, Err(ZipError::ZipInZip)), "{streaming:?}");
     // This unchanged fixture already fails seeking's directory binding check. The boundary tests
-    // also need a derived case with the inner archive's offsets adjusted to the containing source.
+    // also cover a generated archive with self-consistent offsets inside the containing source.
     for result in [seeking, memory] {
         assert!(matches!(result, Err(ZipError::InvalidCentralDirectoryBinding { directory_end: 87, end_record: 196 })));
     }
@@ -143,33 +152,40 @@ async fn entry_comments_are_validated() {
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_deflate() {
-    for result in archive_results(include_bytes!("../malo/accept/deflate.zip")).await {
-        result.unwrap();
+    for data in [
+        include_bytes!("../malo/accept/deflate.zip").as_slice(),
+        include_bytes!("../malo/accept/normal_deflate_zip64_extra.zip").as_slice(),
+    ] {
+        for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
+            result.unwrap();
+        }
     }
 }
 
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_zip64_eocd() {
-    for result in archive_results(include_bytes!("../malo/accept/zip64_eocd.zip")).await {
+    let data = include_bytes!("../malo/accept/zip64_eocd.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
 
 #[tokio::test]
 async fn trailing_nul_padding_limit_is_enforced() {
-    // Reuse the same boundary cases across classic ZIP, ZIP64, and all three reader modes.
-    for archive in [
-        include_bytes!("../malo/accept/store.zip").as_slice(),
+    for ((name, data), accepted) in [
+        (fixture!("stored.zip"), true),
+        (fixture!("stored-padding-4096.zip"), true),
+        (fixture!("stored-padding-4097.zip"), false),
         #[cfg(feature = "deflate")]
-        include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
+        (fixture!("zip64.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("zip64-padding-4096.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("zip64-padding-4097.zip"), false),
     ] {
-        for padding in [0, 4096, 4097] {
-            let mut data = archive.to_vec();
-            data.resize(data.len() + padding, 0);
-            for result in archive_results(&data).await {
-                assert_eq!(result.is_ok(), padding <= 4096, "{padding} padding bytes: {result:?}");
-            }
+        for result in archive_results(data).await {
+            assert_eq!(result.is_ok(), accepted, "{name}: {result:?}");
         }
     }
 }
@@ -189,15 +205,12 @@ async fn trailing_nul_validation_has_bounded_io() {
 
 #[tokio::test]
 async fn nonzero_suffix_after_nul_padding_is_rejected() {
-    // Reuse valid classic ZIP and ZIP64 fixtures, changing only the suffix.
-    for archive in [
-        include_bytes!("../malo/accept/store.zip").as_slice(),
+    for (_, data) in [
+        fixture!("stored-nonzero-suffix.zip"),
         #[cfg(feature = "deflate")]
-        include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
+        fixture!("zip64-nonzero-suffix.zip"),
     ] {
-        let mut data = archive.to_vec();
-        data.extend_from_slice(&[0, 0, b'X']);
-        assert_trailing_contents(archive_results(&data).await);
+        assert_trailing_contents(archive_results(data).await);
     }
 }
 
@@ -239,6 +252,202 @@ fn central_directory_offset(data: &[u8]) -> usize {
 
     let signature = CDH_SIGNATURE.to_le_bytes();
     data.windows(signature.len()).position(|window| window == signature).unwrap()
+}
+
+#[cfg(feature = "tokio-fs")]
+struct FixtureFile(std::path::PathBuf);
+
+#[cfg(feature = "tokio-fs")]
+impl FixtureFile {
+    fn new(data: &[u8]) -> Self {
+        use std::io::Write;
+        let path = std::env::temp_dir().join(format!("async-zip-boundaries-{}.zip", uuid::Uuid::new_v4()));
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).unwrap();
+        let fixture = Self(path);
+        file.write_all(data).unwrap();
+        fixture
+    }
+}
+
+#[cfg(feature = "tokio-fs")]
+impl Drop for FixtureFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+async fn extraction_results(data: &[u8]) -> Vec<crate::error::Result<()>> {
+    use crate::base::read::{mem, seek};
+    use futures_lite::io::{copy, sink, AsyncBufRead, AsyncSeek, BufReader, Cursor};
+
+    async fn extract_seek<R: AsyncBufRead + AsyncSeek + Unpin>(source: R) -> crate::error::Result<()> {
+        let mut reader = seek::ZipFileReader::new(source).await?;
+        for index in 0..reader.file().entries().len() {
+            copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+        }
+        Ok(())
+    }
+
+    vec![
+        extract_seek(Cursor::new(data)).await,
+        extract_seek(BufReader::with_capacity(3, super::ShortReader::new(Cursor::new(data), 3))).await,
+        async {
+            let reader = mem::ZipFileReader::new(data.to_vec()).await?;
+            for index in 0..reader.file().entries().len() {
+                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            }
+            Ok(())
+        }
+        .await,
+        #[cfg(feature = "tokio-fs")]
+        async {
+            let fixture = FixtureFile::new(data);
+            let reader = crate::tokio::read::fs::ZipFileReader::new(&fixture.0).await?;
+            for index in 0..reader.file().entries().len() {
+                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            }
+            Ok(())
+        }
+        .await,
+    ]
+}
+
+#[tokio::test]
+async fn entry_validation_allows_nested_zip_payloads() {
+    use crate::base::read::seek::ZipFileReader;
+    use futures_lite::io::{BufReader, Cursor};
+
+    let data = include_bytes!("fixtures/nested-payload.zip");
+    let source = BufReader::new(super::ShortReader::new(Cursor::new(data), usize::MAX));
+    let mut reader = ZipFileReader::new(source).await.unwrap();
+    reader.inner_mut().get_mut().bytes_read = 0;
+    let mut actual = Vec::new();
+    reader.reader_with_entry(0).await.unwrap().read_to_end_checked(&mut actual).await.unwrap();
+    let nested = include_bytes!("fixtures/stored.zip");
+    assert_eq!(actual.len(), 2 * 1024 * 1024);
+    assert_eq!(&actual[..nested.len()], nested);
+    assert!(actual[nested.len()..].iter().all(|&byte| byte == 0));
+    let source = reader.into_inner().into_inner();
+    assert!(source.bytes_read <= actual.len() + 8_192, "entry validation reread its payload");
+}
+
+#[tokio::test]
+async fn zip_in_comment_is_rejected_by_default() {
+    let results = extraction_results(include_bytes!("fixtures/zip-in-comment.zip")).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn concatenated_archives_are_rejected_by_default() {
+    for (name, data) in
+        [fixture!("concatenated.zip"), fixture!("concatenated-large.zip"), fixture!("concatenated-from-zero.zip")]
+    {
+        let results = extraction_results(data).await;
+        assert!(results.iter().all(Result::is_err), "{name}: {results:?}");
+    }
+}
+
+#[tokio::test]
+async fn embedded_empty_archive_is_rejected_by_default() {
+    let results = extraction_results(include_bytes!("fixtures/empty-in-comment.zip")).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_iffy_prefix() {
+    assert!(archive_results(include_bytes!("../malo/iffy/prefix.zip")).await.iter().all(Result::is_err));
+}
+
+#[tokio::test]
+async fn prefixed_archive_is_rejected_by_default() {
+    let results = extraction_results(include_bytes!("fixtures/prefix.zip")).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn entry_validation_rejects_a_gap_before_the_directory() {
+    let results = extraction_results(include_bytes!("fixtures/gap-before-directory.zip")).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn entry_validation_rejects_local_size_overflow_and_overlap() {
+    for (name, data) in [fixture!("local-size-overflow.zip"), fixture!("local-size-overlap.zip")] {
+        let results = extraction_results(data).await;
+        assert!(results.iter().all(Result::is_err), "{name}: {results:?}");
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_descriptor_flags_must_match() {
+    // These original Malo files disagree on the local and central descriptor flags.
+    for data in [
+        include_bytes!("../malo/accept/data_descriptor.zip").as_slice(),
+        include_bytes!("../malo/accept/data_descriptor_zip64.zip").as_slice(),
+    ] {
+        for result in extraction_results(data).await {
+            assert!(matches!(result, Err(crate::error::ZipError::LocalFileHeaderDataDescriptorMismatch)));
+        }
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_only_descriptor_sized_gaps() {
+    for ((name, data), accepted) in [
+        (fixture!("descriptor-stored-signed.zip"), true),
+        (fixture!("descriptor-stored-unsigned.zip"), true),
+        (fixture!("descriptor-stored-missing.zip"), false),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-signed.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-unsigned.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-missing.zip"), false),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-zip64-signed.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-zip64-unsigned.zip"), true),
+        #[cfg(feature = "deflate")]
+        (fixture!("descriptor-deflate-zip64-missing.zip"), false),
+    ] {
+        for result in extraction_results(data).await {
+            assert_eq!(result.is_ok(), accepted, "{name}: {result:?}");
+        }
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn entry_validation_requires_an_unambiguous_descriptor_length() {
+    for (name, data) in [fixture!("descriptor-index-missing.zip"), fixture!("descriptor-index-conflict.zip")] {
+        let results = extraction_results(data).await;
+        assert!(results.iter().all(Result::is_err), "{name}: {results:?}");
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_subdir_in_either_directory_order() {
+    for (name, data) in [
+        ("Malo subdir", include_bytes!("../malo/accept/subdir.zip").as_slice()),
+        fixture!("subdir.zip"),
+        fixture!("subdir-reordered.zip"),
+    ] {
+        for result in extraction_results(data).await {
+            assert!(result.is_ok(), "{name}: {result:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_empty_archives() {
+    assert_trailing_contents(extraction_results(include_bytes!("fixtures/empty-with-suffix.zip")).await);
+    for (name, data) in [fixture!("empty.zip"), fixture!("empty-zip64.zip")] {
+        for result in extraction_results(data).await {
+            assert!(result.is_ok(), "{name}: {result:?}");
+        }
+    }
 }
 
 #[cfg(feature = "deflate")]
@@ -926,17 +1135,42 @@ async fn test_many_entry_ranges_validate() {
     let mut data = Vec::new();
     let mut writer = ZipFileWriter::new(&mut data);
     for index in 0..1_024 {
+        // Cover both empty entries and payloads that fit in any nonempty read-ahead buffer.
+        let payload: &[u8] = if index % 2 == 0 { b"" } else { b"x" };
         writer
-            .write_entry_whole(ZipEntryBuilder::new(format!("{index}").into(), Compression::Stored), b"")
+            .write_entry_whole(ZipEntryBuilder::new(format!("{index}").into(), Compression::Stored), payload)
             .await
             .unwrap();
     }
     writer.close().await.unwrap();
 
+    let source =
+        futures_lite::io::BufReader::new(super::ShortReader::new(futures_lite::io::Cursor::new(&data[..]), usize::MAX));
+    let mut seeking = crate::base::read::seek::ZipFileReader::new(source).await.unwrap();
+    let source = seeking.inner_mut().get_mut();
+    assert!(source.seeks < 32, "construction performed {} seeks for 1,024 entries", source.seeks);
+    source.seeks = 0;
+    for index in 0..1_024 {
+        futures_lite::io::copy(&mut seeking.reader_without_entry(index).await.unwrap(), &mut futures_lite::io::sink())
+            .await
+            .unwrap();
+    }
+    let source = seeking.into_inner().into_inner();
+    assert_eq!(source.seeks, 1_024, "entry validation added seeks beyond opening each entry");
     let reader = ZipFileReader::new(data).await.unwrap();
     assert_eq!(reader.file().entries().len(), 1_024);
-    for index in 0..1_024 {
-        reader.reader_without_entry(index).await.unwrap();
+    // Independent readers must validate correctly even when entries finish in a different order.
+    let mut tasks = Vec::new();
+    for index in (0..1_024).rev() {
+        let reader = reader.clone();
+        tasks.push(tokio::spawn(async move {
+            futures_lite::io::copy(&mut reader.reader_without_entry(index).await?, &mut futures_lite::io::sink())
+                .await?;
+            crate::error::Result::Ok(())
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap().unwrap();
     }
 }
 
@@ -1012,6 +1246,8 @@ async fn test_directory_allows_digital_signature_record() {
 
     let reader = ZipFileReader::new(data).await.unwrap();
     assert_eq!(reader.file().entries().len(), 1);
+    let mut entry = reader.reader_without_entry(0).await.unwrap();
+    futures_lite::io::copy(&mut entry, &mut futures_lite::io::sink()).await.unwrap();
 }
 
 #[tokio::test]

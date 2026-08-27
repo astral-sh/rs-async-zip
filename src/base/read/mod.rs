@@ -115,7 +115,7 @@ where
     )
     .await?;
     validate_central_directory_binding(&eocdr, central_directory_boundary)?;
-    assign_entry_data_boundaries(&mut entries, eocdr.offset_of_start_of_directory);
+    assign_entry_data_boundaries(&mut entries, eocdr.offset_of_start_of_directory)?;
 
     // Only NUL padding may follow the EOCDR and its comment. Drop the central-directory buffer and
     // seek to the saved archive end so any bytes it read ahead are included in the trailing check.
@@ -207,9 +207,15 @@ fn cd_entry_capacity(num_of_entries: usize, directory_start: u64) -> Result<usiz
     Ok(capacity)
 }
 
-fn assign_entry_data_boundaries(entries: &mut [StoredZipEntry], directory_start: u64) {
+fn assign_entry_data_boundaries(entries: &mut [StoredZipEntry], directory_start: u64) -> Result<()> {
     let mut local_headers: Vec<_> = entries.iter().map(|entry| entry.file_offset).collect();
     local_headers.sort_unstable();
+
+    // The indexed local records must cover the source from byte zero. Empty archives have
+    // no local records, so their directory must itself start at zero. No header I/O is needed.
+    if local_headers.first().copied().unwrap_or(directory_start) != 0 {
+        return Err(ZipError::InvalidArchiveBoundary { offset: 0 });
+    }
 
     for entry in entries {
         entry.data_end_boundary = local_headers
@@ -218,6 +224,7 @@ fn assign_entry_data_boundaries(entries: &mut [StoredZipEntry], directory_start:
             .unwrap_or(directory_start)
             .min(directory_start);
     }
+    Ok(())
 }
 
 /// Parses exactly the central-directory span declared by the selected end record.
