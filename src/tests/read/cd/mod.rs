@@ -467,16 +467,7 @@ async fn entry_validation_requires_an_unambiguous_descriptor_length() {
 async fn entry_completion_rejects_unconsumed_compressed_bytes() {
     // Inflate stops at the end of its stream. A declared compressed size that also covers
     // junk must not make that junk count as validated entry data.
-    let mut data = include_bytes!("../malo/accept/deflate.zip").to_vec();
-    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
-    data.insert(directory, b'X');
-    let directory = directory + 1;
-    let compressed = read_u32(&data, directory + 20) + 1;
-    write_u32(&mut data, 18, compressed);
-    write_u32(&mut data, directory + 20, compressed);
-    let end = end_record_offset(&data);
-    write_u32(&mut data, end + 16, directory as u32);
-    let results = extraction_results(&data).await;
+    let results = extraction_results(include_bytes!("fixtures/deflate-with-junk.zip")).await;
     assert!(results.iter().all(Result::is_err), "{results:?}");
 }
 
@@ -485,11 +476,10 @@ async fn entry_completion_rejects_truncated_stored_payload() {
     use crate::base::read::seek::ZipFileReader;
     use futures_lite::io::{AsyncReadExt, Cursor};
 
-    let data = malo_store_with_payload(b"hello");
-    let file = ZipFileReader::new(Cursor::new(&data)).await.unwrap().file().clone();
-    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    let data = include_bytes!("fixtures/stored.zip");
+    let file = ZipFileReader::new(Cursor::new(data)).await.unwrap().file().clone();
     // Simulate a source ending before the data promised by its previously parsed directory.
-    let mut reader = ZipFileReader::from_raw_parts(Cursor::new(&data[..directory - 1]), file);
+    let mut reader = ZipFileReader::from_raw_parts(Cursor::new(include_bytes!("fixtures/stored-truncated.zip")), file);
     let mut entry = reader.reader_without_entry(0).await.unwrap();
     assert_eq!(entry.read(&mut []).await.unwrap(), 0);
     let error = entry.read_to_end(&mut Vec::new()).await.unwrap_err();

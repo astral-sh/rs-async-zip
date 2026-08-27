@@ -180,6 +180,18 @@ def fixtures():
     struct.pack_into("<HH", data, end + 8, 2, 2)
     write_u32(data, end + 12, 2 * (end_offset(original) - directory))
     result["descriptor-index-conflict.zip"] = data
+
+    # The declared data span includes junk after a complete Deflate stream.
+    data = archive(compression=zipfile.ZIP_DEFLATED)
+    directory = directory_offset(data)
+    compressed = read_u32(data, directory + 20) + 1
+    data[directory:directory] = b"X"
+    write_u32(data, 18, compressed)
+    write_u32(data, directory + 1 + 20, compressed)
+    write_u32(data, end_offset(data) + 16, directory + 1)
+    result["deflate-with-junk.zip"] = data
+    # Used with the complete stored.zip directory to simulate a truncated source.
+    result["stored-truncated.zip"] = stored[: directory_offset(stored) - 1]
     return result
 
 
