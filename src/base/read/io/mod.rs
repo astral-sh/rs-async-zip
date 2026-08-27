@@ -53,6 +53,20 @@ where
     Ok(())
 }
 
+/// Requires EOF after the archive comment, tolerating only trailing NUL padding.
+pub(crate) async fn validate_trailing_contents<R: AsyncRead + Unpin>(mut reader: R) -> crate::error::Result<()> {
+    let mut buffer = [0; 8192];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok(());
+        }
+        if buffer[..read].iter().any(|&byte| byte != 0) {
+            return Err(crate::error::ZipError::TrailingContents);
+        }
+    }
+}
+
 /// A macro that returns the inner value of an Ok or early-returns in the case of an Err.
 ///
 /// This is almost identical to the ? operator but handles the situation when a Result is used in combination with

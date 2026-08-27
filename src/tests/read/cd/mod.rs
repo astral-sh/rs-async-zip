@@ -5,6 +5,148 @@ use crate::spec::version::MAX_SUPPORTED_EXTRACT_VERSION;
 
 const UNSUPPORTED_EXTRACT_VERSION: u16 = MAX_SUPPORTED_EXTRACT_VERSION + 1;
 
+/// Consume both streaming phases, including the terminal end record.
+pub(super) async fn read_streamed_archive<R: futures_lite::io::AsyncBufRead + Unpin>(
+    mut reader: R,
+) -> crate::error::Result<()> {
+    use crate::base::read::{cd::CentralDirectoryReader, cd::Entry, stream::ZipFileReader};
+
+    let mut zip = ZipFileReader::new(&mut reader);
+    let mut offset = 0;
+    while let Some(entry) = zip.next_with_entry().await? {
+        (.., zip) = entry.skip().await?;
+        offset = zip.offset();
+    }
+    let mut directory = CentralDirectoryReader::new(&mut reader, offset);
+    loop {
+        if let Entry::EndOfCentralDirectoryRecord { .. } = directory.next().await? {
+            return Ok(());
+        }
+    }
+}
+
+async fn archive_results(data: &[u8]) -> [crate::error::Result<()>; 3] {
+    use crate::base::read::{mem, seek};
+    use futures_lite::io::{BufReader, Cursor};
+
+    // Exercise short reads in both I/O paths; the memory reader covers ordinary reads.
+    let source = || BufReader::new(super::ShortReader::new(Cursor::new(data), 3));
+    [
+        read_streamed_archive(source()).await,
+        seek::ZipFileReader::new(source()).await.map(|_| ()),
+        mem::ZipFileReader::new(data.to_vec()).await.map(|_| ()),
+    ]
+}
+
+fn assert_trailing_contents(results: impl IntoIterator<Item = crate::error::Result<()>>) {
+    for result in results {
+        assert!(matches!(result, Err(crate::error::ZipError::TrailingContents)), "{result:?}");
+    }
+}
+
+#[tokio::test]
+async fn malo_iffy_suffix_not_comment() {
+    assert_trailing_contents(archive_results(include_bytes!("../malo/iffy/suffix_not_comment.zip")).await);
+
+    #[cfg(feature = "tokio-fs")]
+    assert_trailing_contents([crate::tokio::read::fs::ZipFileReader::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/tests/read/malo/iffy/suffix_not_comment.zip"
+    ))
+    .await
+    .map(|_| ())]);
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_reject_dupe_eocd() {
+    use crate::error::ZipError;
+
+    let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/reject/dupe_eocd.zip")).await;
+    assert_trailing_contents([streaming]);
+    // Seeking already rejects this fixture: its declared CD span includes the first EOCD.
+    for result in [seeking, memory] {
+        assert!(matches!(result, Err(ZipError::InvalidCentralDirectorySize { expected: 73, actual: 51 })));
+    }
+}
+
+#[tokio::test]
+async fn malo_accept_store() {
+    for result in archive_results(include_bytes!("../malo/accept/store.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn malo_accept_comment() {
+    for result in archive_results(include_bytes!("../malo/accept/comment.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_accept_deflate() {
+    for result in archive_results(include_bytes!("../malo/accept/deflate.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_accept_zip64_eocd() {
+    for result in archive_results(include_bytes!("../malo/accept/zip64_eocd.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn trailing_nul_padding_is_accepted() {
+    // Malo has no padding variants; append NULs to its unchanged stored archive.
+    for padding in [0, 1, 256, 1024] {
+        let mut data = include_bytes!("../malo/accept/store.zip").to_vec();
+        data.resize(data.len() + padding, 0);
+        for result in archive_results(&data).await {
+            result.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn nonzero_suffix_after_nul_padding_is_rejected() {
+    // Reuse valid classic ZIP and ZIP64 fixtures, changing only the suffix.
+    for archive in [
+        include_bytes!("../malo/accept/store.zip").as_slice(),
+        #[cfg(feature = "deflate")]
+        include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
+    ] {
+        let mut data = archive.to_vec();
+        data.extend_from_slice(&[0, 0, b'X']);
+        assert_trailing_contents(archive_results(&data).await);
+    }
+}
+
+#[tokio::test]
+async fn suffix_read_errors_are_preserved() {
+    use crate::base::read::seek::ZipFileReader;
+    use crate::error::ZipError;
+    use futures_lite::io::{BufReader, Cursor};
+    use std::io::ErrorKind;
+
+    let data = include_bytes!("../malo/accept/store.zip");
+    let source = || {
+        BufReader::new(super::ShortReader::new(Cursor::new(&data[..]), 3).with_eof_error(ErrorKind::ConnectionReset))
+    };
+    let streaming = read_streamed_archive(source()).await;
+    let seeking = ZipFileReader::new(source()).await.map(|_| ());
+    for result in [streaming, seeking] {
+        let ZipError::UpstreamReadError(error) = result.unwrap_err() else {
+            panic!("expected the suffix I/O error");
+        };
+        assert_eq!(error.kind(), ErrorKind::ConnectionReset);
+    }
+}
+
 fn diff_092_data(local_version: u16, central_version: u16) -> Vec<u8> {
     use crate::spec::consts::CDH_SIGNATURE;
 

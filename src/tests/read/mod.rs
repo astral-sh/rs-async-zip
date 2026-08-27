@@ -22,18 +22,29 @@ use crate::error::ZipError;
 struct ShortReader<R> {
     inner: R,
     max_read: usize,
+    eof_error: Option<std::io::ErrorKind>,
 }
 
 impl<R> ShortReader<R> {
     fn new(inner: R, max_read: usize) -> Self {
-        Self { inner, max_read }
+        Self { inner, max_read, eof_error: None }
+    }
+
+    fn with_eof_error(mut self, kind: std::io::ErrorKind) -> Self {
+        self.eof_error = Some(kind);
+        self
     }
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for ShortReader<R> {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize>> {
         let max_read = self.max_read.min(buf.len());
-        Pin::new(&mut self.inner).poll_read(cx, &mut buf[..max_read])
+        match Pin::new(&mut self.inner).poll_read(cx, &mut buf[..max_read]) {
+            Poll::Ready(Ok(0)) if !buf.is_empty() && self.eof_error.is_some() => {
+                Poll::Ready(Err(std::io::Error::new(self.eof_error.unwrap(), "suffix read failed")))
+            }
+            result => result,
+        }
     }
 }
 
