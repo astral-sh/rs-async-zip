@@ -80,6 +80,8 @@ pub enum ZipError {
     LocalFileHeaderSizeMismatch,
     #[error("entry data range was invalid")]
     InvalidEntryDataRange,
+    #[error("entry consumed {actual} compressed bytes, but the central directory declared {expected}")]
+    CompressedSizeMismatch { expected: u64, actual: u64 },
     #[error("entry data range ({start:#x}..{end:#x}) overlapped ZIP structure at {boundary:#x}")]
     EntryDataRangeOverlap { start: u64, end: u64, boundary: u64 },
     #[error("ZIP version {version} is too low for compression method {compression}; expected {required}")]

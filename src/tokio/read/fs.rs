@@ -4,8 +4,8 @@
 //! A concurrent ZIP reader which acts over a file system path.
 //!
 //! The same default record-range checks as the [`crate::base::read::seek`] reader apply.
-//! Open every entry, including directories, to check all local ranges. Descriptor contents and
-//! actual compressed lengths are not checked; the source must remain unchanged after construction.
+//! Open every entry, including directories, to check all local ranges. Reading to EOF checks
+//! the compressed-byte count, but not descriptor contents. The source must remain unchanged.
 //!
 //! Concurrency is achieved as a result of:
 //! - Wrapping the provided path within an [`Arc`] to allow shared ownership.
@@ -141,7 +141,8 @@ impl ZipFileReader {
             fs_file,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size()))
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -158,7 +159,8 @@ impl ZipFileReader {
             fs_file,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        );
+        )
+        .with_expected_compressed_size(stored_entry.entry.compressed_size());
 
         Ok(reader.into_with_entry(stored_entry))
     }
