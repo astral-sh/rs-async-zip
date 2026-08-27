@@ -6,8 +6,11 @@ These unmodified fixtures are reused from uv’s `malo_*` extraction tests in
 at revision `0723f54ceb33a4fdc7f2eddc19635cd704d61c84` and downloaded from the exact pinned URLs below.
 
 Copyright (c) 2025, fastzip. Distributed under the BSD-2-Clause license; see [LICENSE](LICENSE).
-The test harness follows this crate’s existing tests. Derived cases modify these bytes
-in memory and document the missing coverage and transformation at the test.
+The test harness consumes these bytes unchanged. Additional layouts are generated
+independently with Python's `zipfile`; see [ZIP reader fixtures](../cd/fixtures/README.md).
+
+The descriptor fixtures omit the descriptor flag in their central directories.
+Entry readers reject that mismatch; valid descriptor controls use the generated fixtures.
 
 | Original fixture and download URL | SHA-256 |
 | --- | --- |
