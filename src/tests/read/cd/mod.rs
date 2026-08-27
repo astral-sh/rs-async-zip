@@ -72,14 +72,16 @@ async fn malo_reject_dupe_eocd() {
 
 #[tokio::test]
 async fn malo_accept_store() {
-    for result in archive_results(include_bytes!("../malo/accept/store.zip")).await {
+    let data = include_bytes!("../malo/accept/store.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
 
 #[tokio::test]
 async fn malo_accept_comment() {
-    for result in archive_results(include_bytes!("../malo/accept/comment.zip")).await {
+    let data = include_bytes!("../malo/accept/comment.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
@@ -143,7 +145,8 @@ async fn entry_comments_are_validated() {
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_deflate() {
-    for result in archive_results(include_bytes!("../malo/accept/deflate.zip")).await {
+    let data = include_bytes!("../malo/accept/deflate.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
@@ -151,7 +154,8 @@ async fn malo_accept_deflate() {
 #[cfg(feature = "deflate")]
 #[tokio::test]
 async fn malo_accept_zip64_eocd() {
-    for result in archive_results(include_bytes!("../malo/accept/zip64_eocd.zip")).await {
+    let data = include_bytes!("../malo/accept/zip64_eocd.zip");
+    for result in archive_results(data).await.into_iter().chain(extraction_results(data).await) {
         result.unwrap();
     }
 }
@@ -239,6 +243,441 @@ fn central_directory_offset(data: &[u8]) -> usize {
 
     let signature = CDH_SIGNATURE.to_le_bytes();
     data.windows(signature.len()).position(|window| window == signature).unwrap()
+}
+
+fn end_record_offset(data: &[u8]) -> usize {
+    use crate::spec::consts::EOCDR_SIGNATURE;
+    data.windows(4).rposition(|bytes| bytes == EOCDR_SIGNATURE.to_le_bytes()).unwrap()
+}
+
+fn read_u32(data: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap())
+}
+
+fn write_u32(data: &mut [u8], offset: usize, value: u32) {
+    data[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// Rebase the absolute offsets in a classic ZIP fixture embedded in a larger source.
+fn rebase_classic_archive(data: &mut [u8], base: u32) {
+    use crate::spec::consts::CDH_SIGNATURE;
+
+    let end = end_record_offset(data);
+    let directory = read_u32(data, end + 16);
+    let count = u16::from_le_bytes(data[end + 10..end + 12].try_into().unwrap());
+    let mut offset = directory as usize;
+    for _ in 0..count {
+        assert_eq!(&data[offset..offset + 4], &CDH_SIGNATURE.to_le_bytes());
+        let local_offset = read_u32(data, offset + 42);
+        write_u32(data, offset + 42, local_offset.checked_add(base).unwrap());
+        let lengths: usize = [28, 30, 32]
+            .iter()
+            .map(|field| u16::from_le_bytes(data[offset + field..offset + field + 2].try_into().unwrap()) as usize)
+            .sum();
+        offset += 46 + lengths;
+    }
+    write_u32(data, end + 16, directory.checked_add(base).unwrap());
+}
+
+/// Malo has no large-payload or nested-entry control; replace only its stored entry's payload.
+fn malo_store_with_payload(payload: &[u8]) -> Vec<u8> {
+    let original = include_bytes!("../malo/accept/store.zip");
+    let directory = read_u32(original, end_record_offset(original) + 16) as usize;
+    let data_start = 30
+        + u16::from_le_bytes(original[26..28].try_into().unwrap()) as usize
+        + u16::from_le_bytes(original[28..30].try_into().unwrap()) as usize;
+    let mut data = original[..data_start].to_vec();
+    data.extend_from_slice(payload);
+    let new_directory = data.len();
+    data.extend_from_slice(&original[directory..]);
+    let crc = crc32fast::hash(payload);
+    for (offset, value) in [
+        (14, crc),
+        (18, payload.len() as u32),
+        (22, payload.len() as u32),
+        (new_directory + 16, crc),
+        (new_directory + 20, payload.len() as u32),
+        (new_directory + 24, payload.len() as u32),
+    ] {
+        write_u32(&mut data, offset, value);
+    }
+    let end = end_record_offset(&data);
+    write_u32(&mut data, end + 16, new_directory as u32);
+    data
+}
+
+fn malo_store_with_descriptor(payload: &[u8]) -> Vec<u8> {
+    use crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE;
+
+    // Malo's descriptor cases are Deflate-only. Add the same layout to its stored case.
+    let mut data = malo_store_with_payload(payload);
+    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    let mut descriptor = DATA_DESCRIPTOR_SIGNATURE.to_le_bytes().to_vec();
+    descriptor.extend_from_slice(&data[14..26]);
+    data.splice(directory..directory, descriptor);
+    let directory = directory + 16;
+    data[4..6].copy_from_slice(&20_u16.to_le_bytes());
+    data[6..8].copy_from_slice(&8_u16.to_le_bytes());
+    data[14..26].fill(0);
+    data[directory + 6..directory + 8].copy_from_slice(&20_u16.to_le_bytes());
+    data[directory + 8..directory + 10].copy_from_slice(&8_u16.to_le_bytes());
+    let end = end_record_offset(&data);
+    write_u32(&mut data, end + 16, directory as u32);
+    data
+}
+
+#[cfg(feature = "tokio-fs")]
+struct FixtureFile(std::path::PathBuf);
+
+#[cfg(feature = "tokio-fs")]
+impl FixtureFile {
+    fn new(data: &[u8]) -> Self {
+        use std::io::Write;
+        let path = std::env::temp_dir().join(format!("async-zip-boundaries-{}.zip", uuid::Uuid::new_v4()));
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&path).unwrap();
+        let fixture = Self(path);
+        file.write_all(data).unwrap();
+        fixture
+    }
+}
+
+#[cfg(feature = "tokio-fs")]
+impl Drop for FixtureFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+async fn extraction_results(data: &[u8]) -> Vec<crate::error::Result<()>> {
+    use crate::base::read::{mem, seek};
+    use futures_lite::io::{copy, sink, AsyncBufRead, AsyncSeek, BufReader, Cursor};
+
+    async fn extract_seek<R: AsyncBufRead + AsyncSeek + Unpin>(source: R) -> crate::error::Result<()> {
+        let mut reader = seek::ZipFileReader::new(source).await?;
+        for index in 0..reader.file().entries().len() {
+            copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+        }
+        Ok(())
+    }
+
+    let results = vec![
+        extract_seek(Cursor::new(data)).await,
+        extract_seek(BufReader::with_capacity(3, super::ShortReader::new(Cursor::new(data), 3))).await,
+        async {
+            let reader = mem::ZipFileReader::new(data.to_vec()).await?;
+            for index in 0..reader.file().entries().len() {
+                copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+            }
+            Ok(())
+        }
+        .await,
+    ];
+    #[cfg(feature = "tokio-fs")]
+    let results = {
+        let mut results = results;
+        let fixture = FixtureFile::new(data);
+        results.push(
+            async {
+                let reader = crate::tokio::read::fs::ZipFileReader::new(&fixture.0).await?;
+                for index in 0..reader.file().entries().len() {
+                    copy(&mut reader.reader_without_entry(index).await?, &mut sink()).await?;
+                }
+                Ok(())
+            }
+            .await,
+        );
+        results
+    };
+    results
+}
+
+#[derive(Default)]
+struct ReadStats {
+    bytes: std::cell::Cell<u64>,
+    seeks: std::cell::Cell<usize>,
+}
+
+struct TrackedReader<R> {
+    inner: R,
+    stats: std::rc::Rc<ReadStats>,
+}
+
+impl<R: futures_lite::io::AsyncRead + Unpin> futures_lite::io::AsyncRead for TrackedReader<R> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        let result = std::pin::Pin::new(&mut this.inner).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(read)) = &result {
+            this.stats.bytes.set(this.stats.bytes.get() + *read as u64);
+        }
+        result
+    }
+}
+
+impl<R: futures_lite::io::AsyncSeek + Unpin> futures_lite::io::AsyncSeek for TrackedReader<R> {
+    fn poll_seek(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        position: std::io::SeekFrom,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        let this = self.get_mut();
+        let result = std::pin::Pin::new(&mut this.inner).poll_seek(cx, position);
+        if result.is_ready() {
+            this.stats.seeks.set(this.stats.seeks.get() + 1);
+        }
+        result
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_allows_nested_zip_payloads() {
+    use crate::base::read::seek::ZipFileReader;
+    use futures_lite::io::{BufReader, Cursor};
+
+    let mut payload = include_bytes!("../malo/accept/store.zip").to_vec();
+    payload.resize(2 * 1024 * 1024, 0);
+    let data = malo_store_with_payload(&payload);
+    let stats = std::rc::Rc::new(ReadStats::default());
+    let source = BufReader::new(TrackedReader { inner: Cursor::new(data), stats: stats.clone() });
+    let mut reader = ZipFileReader::new(source).await.unwrap();
+    stats.bytes.set(0);
+    let mut actual = Vec::new();
+    reader.reader_with_entry(0).await.unwrap().read_to_end_checked(&mut actual).await.unwrap();
+    assert_eq!(actual, payload);
+    assert!(stats.bytes.get() <= payload.len() as u64 + 8_192, "entry validation reread its payload");
+}
+
+#[tokio::test]
+async fn malo_rebased_zipinzip_is_rejected_by_default() {
+    use crate::spec::consts::EOCDR_SIGNATURE;
+
+    // The unchanged Malo fixture fails the existing binding check. Adjust only the inner CD's
+    // offsets to make that archive internally consistent within the containing source.
+    let mut data = include_bytes!("../malo/malicious/zipinzip.zip").to_vec();
+    let inner = data.windows(4).position(|bytes| bytes == EOCDR_SIGNATURE.to_le_bytes()).unwrap() + 22;
+    rebase_classic_archive(&mut data[inner..], inner as u32);
+    let results = extraction_results(&data).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn concatenated_malo_archives_are_rejected_by_default() {
+    // Malo's dupe_eocd has only a second footer, already rejected by directory-size validation.
+    // Concatenate two complete fixtures instead, rebasing the second archive's offsets.
+    for large in [false, true] {
+        let mut data = include_bytes!("../malo/accept/store.zip").to_vec();
+        let mut second = if large {
+            let mut payload = include_bytes!("../malo/accept/store.zip").to_vec();
+            payload.resize(131_072, 0);
+            malo_store_with_payload(&payload)
+        } else {
+            include_bytes!("../malo/accept/store.zip").to_vec()
+        };
+        rebase_classic_archive(&mut second, data.len() as u32);
+        data.extend_from_slice(&second);
+        let results = extraction_results(&data).await;
+        assert!(results.iter().all(Result::is_err), "large second archive: {large}, {results:?}");
+        if !large {
+            // Even an index that references byte zero cannot hide an earlier directory/footer
+            // in the gap between its local entry and the selected directory.
+            let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+            write_u32(&mut data, directory + 42, 0);
+            let results = extraction_results(&data).await;
+            assert!(results.iter().all(Result::is_err), "{results:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn embedded_empty_archive_is_rejected_by_default() {
+    // Derive an empty inner archive from the existing empty fixture, rather than another ZIP writer.
+    let mut data = include_bytes!("../malo/accept/store.zip").to_vec();
+    let end = end_record_offset(&data);
+    let mut inner = include_bytes!("../locator/empty.zip").to_vec();
+    rebase_classic_archive(&mut inner, data.len() as u32);
+    data[end + 20..end + 22].copy_from_slice(&(inner.len() as u16).to_le_bytes());
+    data.extend_from_slice(&inner);
+    let results = extraction_results(&data).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_iffy_prefix() {
+    // The original fixture uses offsets relative to its ZIP payload, and is already rejected.
+    let original = include_bytes!("../malo/iffy/prefix.zip");
+    assert!(archive_results(original).await.iter().all(Result::is_err));
+
+    // Rebasing the offsets must not allow a preamble: the ZIP must start at byte zero.
+    let mut data = original.to_vec();
+    rebase_classic_archive(&mut data[4..], 4);
+    let results = extraction_results(&data).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn entry_validation_rejects_a_gap_before_the_directory() {
+    let mut data = include_bytes!("../malo/accept/store.zip").to_vec();
+    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    data.insert(directory, b'X');
+    let end = end_record_offset(&data);
+    write_u32(&mut data, end + 16, directory as u32 + 1);
+    let results = extraction_results(&data).await;
+    assert!(results.iter().all(Result::is_err), "{results:?}");
+}
+
+#[tokio::test]
+async fn entry_validation_rejects_local_size_overflow_and_overlap() {
+    let overflow = empty_stored_zip(0, u32::MAX, u32::MAX, &zip64_sizes_extra_field(u64::MAX, 0), 0, 0, 0);
+    let overlap = empty_stored_zip(0, 1, 0, &[], 0, 0, 0);
+    for data in [overflow, overlap] {
+        let results = extraction_results(&data).await;
+        assert!(results.iter().all(Result::is_err), "{results:?}");
+    }
+}
+
+#[tokio::test]
+async fn malo_accept_subdir() {
+    for result in extraction_results(include_bytes!("../malo/accept/subdir.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+fn malo_descriptor_with_matching_flags(data: &[u8]) -> Vec<u8> {
+    // Malo's descriptor fixtures omit the descriptor flag in the directory, which entry
+    // readers already reject. Change only that flag to exercise their valid descriptor layout.
+    let mut data = data.to_vec();
+    let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+    data[directory + 8] |= 8;
+    data
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_accept_data_descriptor() {
+    let data = malo_descriptor_with_matching_flags(include_bytes!("../malo/accept/data_descriptor.zip"));
+    for result in extraction_results(&data).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_accept_data_descriptor_zip64() {
+    let data = malo_descriptor_with_matching_flags(include_bytes!("../malo/accept/data_descriptor_zip64.zip"));
+    for result in extraction_results(&data).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn malo_accept_normal_deflate_zip64_extra() {
+    for result in extraction_results(include_bytes!("../malo/accept/normal_deflate_zip64_extra.zip")).await {
+        result.unwrap();
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn entry_validation_handles_unsigned_and_truncated_descriptors() {
+    use crate::spec::consts::DATA_DESCRIPTOR_SIGNATURE;
+
+    for archive in [
+        include_bytes!("../malo/accept/data_descriptor.zip").as_slice(),
+        include_bytes!("../malo/accept/data_descriptor_zip64.zip").as_slice(),
+    ] {
+        let archive = malo_descriptor_with_matching_flags(archive);
+        let descriptor = archive.windows(4).position(|bytes| bytes == DATA_DESCRIPTOR_SIGNATURE.to_le_bytes()).unwrap();
+        let directory = read_u32(&archive, end_record_offset(&archive) + 16) as usize;
+        for removed in [4, directory - descriptor] {
+            // Remove the optional signature, or the whole descriptor; preserve all other bytes.
+            let mut data = archive.to_vec();
+            data.drain(descriptor..descriptor + removed);
+            let end = end_record_offset(&data);
+            write_u32(&mut data, end + 16, (directory - removed) as u32);
+            for result in extraction_results(&data).await {
+                assert_eq!(result.is_ok(), removed == 4, "removed {removed} descriptor bytes: {result:?}");
+            }
+        }
+    }
+}
+
+#[cfg(feature = "deflate")]
+#[tokio::test]
+async fn entry_validation_requires_an_unambiguous_descriptor_length() {
+    // Malo's descriptor controls each have one matching directory entry. Derive the missing and
+    // conflicting length cases by changing only that index, leaving the local record intact.
+    let data = malo_descriptor_with_matching_flags(include_bytes!("../malo/accept/data_descriptor.zip"));
+    let original = data.as_slice();
+    let end = end_record_offset(original);
+    let directory = read_u32(original, end + 16) as usize;
+    let mut missing = original.to_vec();
+    write_u32(&mut missing, directory + 42, 1);
+
+    let mut conflicting = original.to_vec();
+    conflicting.splice(end..end, original[directory..end].iter().copied());
+    write_u32(&mut conflicting, end + 20, read_u32(original, directory + 20) + 1);
+    let new_end = end_record_offset(&conflicting);
+    conflicting[new_end + 8..new_end + 10].copy_from_slice(&2_u16.to_le_bytes());
+    conflicting[new_end + 10..new_end + 12].copy_from_slice(&2_u16.to_le_bytes());
+    write_u32(&mut conflicting, new_end + 12, (2 * (end - directory)) as u32);
+
+    for data in [missing, conflicting] {
+        for result in extraction_results(&data).await {
+            assert!(result.is_err(), "{result:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_stored_data_descriptors() {
+    for signed in [true, false] {
+        let mut data = malo_store_with_descriptor(b"hello");
+        if !signed {
+            let directory = read_u32(&data, end_record_offset(&data) + 16) as usize;
+            data.drain(directory - 16..directory - 12);
+            let end = end_record_offset(&data);
+            write_u32(&mut data, end + 16, directory as u32 - 4);
+        }
+        for result in extraction_results(&data).await {
+            result.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_reordered_directory_entries() {
+    let mut data = include_bytes!("../malo/accept/subdir.zip").to_vec();
+    let end = end_record_offset(&data);
+    let directory = read_u32(&data, end + 16) as usize;
+    let first_length = 46 + u16::from_le_bytes(data[directory + 28..directory + 30].try_into().unwrap()) as usize;
+    data[directory..end].rotate_left(first_length);
+    for result in extraction_results(&data).await {
+        result.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn entry_validation_accepts_empty_archives() {
+    let empty = include_bytes!("../locator/empty.zip");
+    for result in extraction_results(empty).await {
+        result.unwrap();
+    }
+
+    let mut trailing = empty.to_vec();
+    trailing.push(1);
+    assert_trailing_contents(extraction_results(&trailing).await);
+
+    // There is no empty ZIP64 fixture; use the existing writer to exercise its zero-entry layout.
+    let data = crate::base::write::ZipFileWriter::new(Vec::new()).force_zip64().close().await.unwrap();
+    for result in extraction_results(&data).await {
+        result.unwrap();
+    }
 }
 
 #[cfg(feature = "deflate")]
@@ -926,17 +1365,44 @@ async fn test_many_entry_ranges_validate() {
     let mut data = Vec::new();
     let mut writer = ZipFileWriter::new(&mut data);
     for index in 0..1_024 {
+        // Cover both empty entries and payloads that fit in any nonempty read-ahead buffer.
+        let payload: &[u8] = if index % 2 == 0 { b"" } else { b"x" };
         writer
-            .write_entry_whole(ZipEntryBuilder::new(format!("{index}").into(), Compression::Stored), b"")
+            .write_entry_whole(ZipEntryBuilder::new(format!("{index}").into(), Compression::Stored), payload)
             .await
             .unwrap();
     }
     writer.close().await.unwrap();
 
+    let stats = std::rc::Rc::new(ReadStats::default());
+    let source = futures_lite::io::BufReader::new(TrackedReader {
+        inner: futures_lite::io::Cursor::new(&data[..]),
+        stats: stats.clone(),
+    });
+    let mut seeking = crate::base::read::seek::ZipFileReader::new(source).await.unwrap();
+    assert!(stats.seeks.get() < 32, "construction performed {} seeks for 1,024 entries", stats.seeks.get());
+    stats.bytes.set(0);
+    stats.seeks.set(0);
+    for index in 0..1_024 {
+        futures_lite::io::copy(&mut seeking.reader_without_entry(index).await.unwrap(), &mut futures_lite::io::sink())
+            .await
+            .unwrap();
+    }
+    assert_eq!(stats.seeks.get(), 1_024, "entry validation added seeks beyond opening each entry");
     let reader = ZipFileReader::new(data).await.unwrap();
     assert_eq!(reader.file().entries().len(), 1_024);
-    for index in 0..1_024 {
-        reader.reader_without_entry(index).await.unwrap();
+    // Independent readers must validate correctly even when entries finish in a different order.
+    let mut tasks = Vec::new();
+    for index in (0..1_024).rev() {
+        let reader = reader.clone();
+        tasks.push(tokio::spawn(async move {
+            futures_lite::io::copy(&mut reader.reader_without_entry(index).await?, &mut futures_lite::io::sink())
+                .await?;
+            crate::error::Result::Ok(())
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap().unwrap();
     }
 }
 
@@ -1012,6 +1478,8 @@ async fn test_directory_allows_digital_signature_record() {
 
     let reader = ZipFileReader::new(data).await.unwrap();
     assert_eq!(reader.file().entries().len(), 1);
+    let mut entry = reader.reader_without_entry(0).await.unwrap();
+    futures_lite::io::copy(&mut entry, &mut futures_lite::io::sink()).await.unwrap();
 }
 
 #[tokio::test]
