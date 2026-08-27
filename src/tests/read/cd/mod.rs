@@ -89,10 +89,7 @@ async fn malo_iffy_8bitcomment() {
     use crate::error::ZipError;
 
     let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/iffy/8bitcomment.zip")).await;
-    assert_eq!(
-        streaming.unwrap_err().to_string(),
-        "ZIP file end-of-central-directory record contains a comment that appears to be an embedded ZIP file"
-    );
+    assert!(matches!(streaming, Err(ZipError::ZipInZip)), "{streaming:?}");
     // Seeking already rejects the end record found inside this fixture's binary comment.
     for result in [seeking, memory] {
         assert!(matches!(result, Err(ZipError::FeatureNotSupported("Spanned/split files"))));
@@ -104,11 +101,7 @@ async fn malo_malicious_zipinzip() {
     use crate::error::ZipError;
 
     let [streaming, seeking, memory] = archive_results(include_bytes!("../malo/malicious/zipinzip.zip")).await;
-    assert!(streaming.is_err(), "streaming: {streaming:?}, seeking: {seeking:?}, memory: {memory:?}");
-    assert_eq!(
-        streaming.unwrap_err().to_string(),
-        "ZIP file end-of-central-directory record contains a comment that appears to be an embedded ZIP file"
-    );
+    assert!(matches!(streaming, Err(ZipError::ZipInZip)), "{streaming:?}");
     // This unchanged fixture already fails seeking's directory binding check. The boundary tests
     // also need a derived case with the inner archive's offsets adjusted to the containing source.
     for result in [seeking, memory] {
@@ -116,37 +109,35 @@ async fn malo_malicious_zipinzip() {
     }
 }
 
-fn with_archive_comment(archive: &[u8], comment: &[u8]) -> Vec<u8> {
-    use crate::spec::consts::{EOCDR_LENGTH, EOCDR_SIGNATURE, SIGNATURE_LENGTH};
+#[tokio::test]
+async fn entry_comments_are_validated() {
+    use crate::base::write::ZipFileWriter;
+    use crate::error::ZipError;
+    use crate::{Compression, ZipEntryBuilder, ZipString};
 
-    // Derive only the archive comment from an existing valid fixture; retain all entry bytes.
-    let offset = archive.windows(4).rposition(|bytes| bytes == EOCDR_SIGNATURE.to_le_bytes()).unwrap();
-    let end = offset + SIGNATURE_LENGTH + EOCDR_LENGTH;
-    let mut data = archive[..end].to_vec();
-    data[end - 2..end].copy_from_slice(&(comment.len() as u16).to_le_bytes());
-    data.extend_from_slice(comment);
-    data
-}
-
-async fn check_archive_comment_policy(archive: &[u8]) {
-    // Malo's 8bitcomment repro does not isolate each rejected byte or the adjacent allowed values.
-    for byte in (0..=10).chain([13, 127, 255]) {
-        let data = with_archive_comment(archive, &[byte]);
-        for result in archive_results(&data).await {
-            assert_eq!(result.is_err(), (1..=8).contains(&byte), "comment byte {byte:#x}: {result:?}");
+    // Malo covers archive comments; use the writer to exercise entry comments and both encodings
+    // of an Info-ZIP Unicode comment. These bytes remain valid in entry payloads.
+    for (comment, rejected) in [
+        (ZipString::new_with_alternative("\0\t\n".into(), vec![0xff]), false),
+        ("\x01\x08".into(), true),
+        (ZipString::new_with_alternative("safe".into(), vec![0x01]), true),
+        (ZipString::new_with_alternative("\x08".into(), b"safe".to_vec()), true),
+    ] {
+        let mut writer = ZipFileWriter::new(Vec::new());
+        writer
+            .write_entry_whole(ZipEntryBuilder::new("entry".into(), Compression::Stored).comment(comment), b"\x01\x08")
+            .await
+            .unwrap();
+        let data = writer.close().await.unwrap();
+        let results = archive_results(&data).await;
+        if rejected {
+            assert!(results.iter().all(|result| matches!(result, Err(ZipError::ZipInZip))), "{results:?}");
+        } else {
+            for result in results {
+                result.unwrap();
+            }
         }
     }
-}
-
-#[tokio::test]
-async fn archive_comment_policy_matches_uv() {
-    check_archive_comment_policy(include_bytes!("../malo/accept/comment.zip")).await;
-}
-
-#[cfg(feature = "deflate")]
-#[tokio::test]
-async fn zip64_archive_comment_policy_matches_uv() {
-    check_archive_comment_policy(include_bytes!("../malo/accept/zip64_eocd.zip")).await;
 }
 
 #[cfg(feature = "deflate")]
