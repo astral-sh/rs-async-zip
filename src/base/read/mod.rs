@@ -396,12 +396,11 @@ where
         filename,
         compression,
         #[cfg(any(
-            feature = "deflate",
-            feature = "bzip2",
-            feature = "zstd",
-            feature = "lzma",
-            feature = "xz",
-            feature = "deflate64"
+            feature = "deflate-write",
+            feature = "bzip2-write",
+            feature = "zstd-write",
+            feature = "lzma-write",
+            feature = "xz-write"
         ))]
         compression_level: async_compression::Level::Default,
         attribute_compatibility: AttributeCompatibility::Unix,
@@ -457,12 +456,11 @@ where
         filename,
         compression,
         #[cfg(any(
-            feature = "deflate",
-            feature = "bzip2",
-            feature = "zstd",
-            feature = "lzma",
-            feature = "xz",
-            feature = "deflate64"
+            feature = "deflate-write",
+            feature = "bzip2-write",
+            feature = "zstd-write",
+            feature = "lzma-write",
+            feature = "xz-write"
         ))]
         compression_level: async_compression::Level::Default,
         attribute_compatibility: AttributeCompatibility::Unix,

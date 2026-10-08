@@ -29,26 +29,18 @@ jobs:
       - name: Test ['tokio-fs' feature]
         run: cargo test --verbose --features tokio-fs
 
-      - name: Test ['deflate' feature]
-        run: cargo test --verbose --features deflate
+      - name: Test compression features
+        run: |
+          for format in deflate bzip2 lzma zstd xz; do
+            for suffix in '' '-read' '-write'; do
+              cargo test --verbose --no-default-features --features "${format}${suffix}"
+            done
+          done
+          cargo test --verbose --no-default-features --features deflate64
+          cargo test --verbose --no-default-features --features deflate64-read
 
-      - name: Test ['bzip2' feature]
-        run: cargo test --verbose --features bzip2
-
-      - name: Test ['lzma' feature]
-        run: cargo test --verbose --features lzma
-
-      - name: Test ['zstd-read' feature]
-        run: cargo test --verbose --features zstd-read
-
-      - name: Test ['zstd' feature]
-        run: cargo test --verbose --features zstd
-
-      - name: Test ['xz' feature]
-        run: cargo test --verbose --features xz
-
-      - name: Test ['deflate64' feature]
-        run: cargo test --verbose --features deflate64
+      - name: Test mixed compression features
+        run: cargo test --verbose --no-default-features --features deflate-read,bzip2-write,lzma-read,zstd-write,xz-read,deflate64-read,tokio-fs
 
       - name: Test ['full' feature]
         run: cargo test --verbose --features full

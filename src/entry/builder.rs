@@ -46,7 +46,13 @@ impl ZipEntryBuilder {
     /// Set the deflate compression option.
     ///
     /// If the compression type isn't deflate, this option has no effect.
-    #[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
+    #[cfg(any(
+        feature = "deflate-write",
+        feature = "bzip2-write",
+        feature = "zstd-write",
+        feature = "lzma-write",
+        feature = "xz-write"
+    ))]
     pub fn deflate_option(mut self, option: crate::DeflateOption) -> Self {
         self.0.compression_level = option.into_level();
         self

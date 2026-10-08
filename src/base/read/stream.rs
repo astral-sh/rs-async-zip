@@ -105,7 +105,7 @@ where
         };
 
         let length = if entry.data_descriptor { u64::MAX } else { entry.compressed_size };
-        let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length);
+        let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length)?;
 
         let suffix = if entry.data_descriptor {
             if entry.extra_fields.iter().any(|ef| ef.header_id() == HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD) {
@@ -129,7 +129,7 @@ where
         };
 
         let length = if entry.data_descriptor { u64::MAX } else { entry.compressed_size };
-        let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length);
+        let reader = ZipEntryReader::new_with_owned(self.0 .0, entry.compression, length)?;
 
         let suffix = if entry.data_descriptor {
             if entry.extra_fields.iter().any(|ef| ef.header_id() == HeaderId::ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD) {

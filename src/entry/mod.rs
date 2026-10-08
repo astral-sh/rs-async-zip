@@ -29,12 +29,11 @@ pub struct ZipEntry {
     pub(crate) filename: ZipString,
     pub(crate) compression: Compression,
     #[cfg(any(
-        feature = "deflate",
-        feature = "bzip2",
-        feature = "zstd",
-        feature = "lzma",
-        feature = "xz",
-        feature = "deflate64"
+        feature = "deflate-write",
+        feature = "bzip2-write",
+        feature = "zstd-write",
+        feature = "lzma-write",
+        feature = "xz-write"
     ))]
     pub(crate) compression_level: async_compression::Level,
     pub(crate) crc32: u32,
@@ -62,12 +61,11 @@ impl ZipEntry {
             filename,
             compression,
             #[cfg(any(
-                feature = "deflate",
-                feature = "bzip2",
-                feature = "zstd",
-                feature = "lzma",
-                feature = "xz",
-                feature = "deflate64"
+                feature = "deflate-write",
+                feature = "bzip2-write",
+                feature = "zstd-write",
+                feature = "lzma-write",
+                feature = "xz-write"
             ))]
             compression_level: async_compression::Level::Default,
             crc32: 0,

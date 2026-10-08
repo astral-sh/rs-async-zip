@@ -84,17 +84,17 @@ mod tests {
     #[test]
     fn compression_minimum_versions_match_appnote() {
         assert_eq!(minimum_version_needed(Compression::Stored), 10);
-        #[cfg(feature = "deflate")]
+        #[cfg(any(feature = "deflate-read", feature = "deflate-write"))]
         assert_eq!(minimum_version_needed(Compression::Deflate), 20);
-        #[cfg(feature = "deflate64")]
+        #[cfg(feature = "deflate64-read")]
         assert_eq!(minimum_version_needed(Compression::Deflate64), 21);
-        #[cfg(feature = "bzip2")]
+        #[cfg(any(feature = "bzip2-read", feature = "bzip2-write"))]
         assert_eq!(minimum_version_needed(Compression::Bz), 46);
-        #[cfg(feature = "lzma")]
+        #[cfg(any(feature = "lzma-read", feature = "lzma-write"))]
         assert_eq!(minimum_version_needed(Compression::Lzma), 63);
-        #[cfg(feature = "zstd-read")]
+        #[cfg(any(feature = "zstd-read", feature = "zstd-write"))]
         assert_eq!(minimum_version_needed(Compression::Zstd), 10);
-        #[cfg(feature = "xz")]
+        #[cfg(any(feature = "xz-read", feature = "xz-write"))]
         assert_eq!(minimum_version_needed(Compression::Xz), 10);
     }
 }

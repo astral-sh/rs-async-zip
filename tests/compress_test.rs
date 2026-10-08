@@ -6,14 +6,14 @@ use futures_lite::AsyncWriteExt;
 
 mod common;
 
-#[cfg(feature = "zstd")]
+#[cfg(all(feature = "zstd-read", feature = "zstd-write"))]
 #[tokio::test]
 async fn zip_zstd_in_out() {
     let zip_data = common::compress_to_mem(Compression::Zstd).await;
     common::check_decompress_mem(zip_data).await
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(all(feature = "deflate-read", feature = "deflate-write"))]
 #[tokio::test]
 async fn zip_decompress_in_out() {
     let zip_data = common::compress_to_mem(Compression::Deflate).await;

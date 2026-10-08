@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Astral
 // MIT License (https://github.com/astral-sh/rs-async-zip/blob/main/LICENSE)
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 fn deflate64_zip(local_version: u16, central_version: u16) -> Vec<u8> {
     use crate::spec::consts::{CDH_SIGNATURE, EOCDR_SIGNATURE, LFH_SIGNATURE};
     use crate::spec::header::{
@@ -79,7 +79,7 @@ fn deflate64_zip(local_version: u16, central_version: u16) -> Vec<u8> {
     data
 }
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn invalid_central_directory_version_is_rejected() {
     use futures_lite::io::{BufReader, Cursor};
@@ -95,7 +95,7 @@ async fn invalid_central_directory_version_is_rejected() {
     assert!(matches!(err, ZipError::InvalidCompressionVersion { version: 1, required: 21, compression: 9 }));
 }
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn invalid_seekable_local_header_version_is_rejected_before_entry_read() {
     use futures_lite::io::{BufReader, Cursor};

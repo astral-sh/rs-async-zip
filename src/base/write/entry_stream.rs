@@ -55,15 +55,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
             return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
         }
 
-        #[cfg(feature = "deflate64")]
-        if matches!(entry.compression(), crate::Compression::Deflate64) {
-            return Err(ZipError::FeatureNotSupported("Deflate64 writing"));
-        }
-
-        #[cfg(all(feature = "zstd-read", not(feature = "zstd")))]
-        if let crate::Compression::Zstd = entry.compression() {
-            return Err(ZipError::FeatureNotSupported("Zstd writing"));
-        }
+        entry.compression().ensure_can_write()?;
 
         let lfh_offset = writer.writer.offset();
         let lfh = EntryStreamWriter::write_lfh(writer, &mut entry).await?;

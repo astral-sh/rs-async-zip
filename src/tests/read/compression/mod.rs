@@ -6,19 +6,19 @@ use crate::spec::Compression;
 
 compressed_test_helper!(stored_test, Compression::Stored, "foo bar", "foo bar");
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 compressed_test_helper!(deflate_test, Compression::Deflate, "foo bar", include_bytes!("deflate.data"));
 
-#[cfg(feature = "bzip2")]
+#[cfg(feature = "bzip2-read")]
 compressed_test_helper!(bz_test, Compression::Bz, "foo bar", include_bytes!("bzip2.data"));
 
-#[cfg(feature = "lzma")]
+#[cfg(feature = "lzma-read")]
 compressed_test_helper!(lzma_test, Compression::Lzma, "foo bar", include_bytes!("lzma.data"));
 
 #[cfg(feature = "zstd-read")]
 compressed_test_helper!(zstd_test, Compression::Zstd, "foo bar", include_bytes!("zstd.data"));
 
-#[cfg(feature = "xz")]
+#[cfg(feature = "xz-read")]
 compressed_test_helper!(xz_test, Compression::Xz, "foo bar", include_bytes!("xz.data"));
 
 /// A helper macro for generating a CompressedReader test using a specific compression method.
@@ -33,7 +33,7 @@ macro_rules! compressed_test_helper {
             let data_raw = $data_raw;
 
             let cursor = Cursor::new(data);
-            let mut reader = CompressedReader::new(cursor, $typ);
+            let mut reader = CompressedReader::new(cursor, $typ).unwrap();
 
             let mut read_data = String::new();
             reader.read_to_string(&mut read_data).await.expect("read into CompressedReader failed");

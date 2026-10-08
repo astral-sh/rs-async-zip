@@ -17,7 +17,7 @@ async fn decompress_zstd_zip_seek() {
     common::check_decompress_seek(ZSTD_ZIP_FILE).await
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn decompress_deflate_zip_seek() {
     common::check_decompress_seek(DEFLATE_ZIP_FILE).await
@@ -42,7 +42,7 @@ async fn decompress_zstd_zip_mem() {
     common::check_decompress_mem(content).await
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn decompress_deflate_zip_mem() {
     let content = tokio::fs::read(DEFLATE_ZIP_FILE).await.unwrap();
@@ -62,7 +62,7 @@ async fn decompress_zstd_zip_fs() {
     common::check_decompress_fs(ZSTD_ZIP_FILE).await
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[cfg(feature = "tokio-fs")]
 #[tokio::test]
 async fn decompress_deflate_zip_fs() {
