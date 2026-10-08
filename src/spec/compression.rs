@@ -19,7 +19,7 @@ pub enum Compression {
     Bz,
     #[cfg(feature = "lzma")]
     Lzma,
-    #[cfg(feature = "zstd")]
+    #[cfg(feature = "zstd-read")]
     Zstd,
     #[cfg(feature = "xz")]
     Xz,
@@ -41,7 +41,7 @@ impl TryFrom<u16> for Compression {
             12 => Ok(Compression::Bz),
             #[cfg(feature = "lzma")]
             14 => Ok(Compression::Lzma),
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             93 => Ok(Compression::Zstd),
             #[cfg(feature = "xz")]
             95 => Ok(Compression::Xz),
@@ -64,7 +64,7 @@ impl From<&Compression> for u16 {
             Compression::Bz => 12,
             #[cfg(feature = "lzma")]
             Compression::Lzma => 14,
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             Compression::Zstd => 93,
             #[cfg(feature = "xz")]
             Compression::Xz => 95,

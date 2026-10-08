@@ -92,7 +92,7 @@ mod tests {
         assert_eq!(minimum_version_needed(Compression::Bz), 46);
         #[cfg(feature = "lzma")]
         assert_eq!(minimum_version_needed(Compression::Lzma), 63);
-        #[cfg(feature = "zstd")]
+        #[cfg(feature = "zstd-read")]
         assert_eq!(minimum_version_needed(Compression::Zstd), 10);
         #[cfg(feature = "xz")]
         assert_eq!(minimum_version_needed(Compression::Xz), 10);

@@ -11,7 +11,7 @@ const DEFLATE_ZIP_FILE: &str = "tests/test_inputs/sample_data.deflate.zip";
 const STORE_ZIP_FILE: &str = "tests/test_inputs/sample_data.store.zip";
 const UTF8_EXTRA_ZIP_FILE: &str = "tests/test_inputs/sample_data_utf8_extra.zip";
 
-#[cfg(feature = "zstd")]
+#[cfg(feature = "zstd-read")]
 #[tokio::test]
 async fn decompress_zstd_zip_seek() {
     common::check_decompress_seek(ZSTD_ZIP_FILE).await
@@ -35,7 +35,7 @@ async fn decompress_store_zip_seek() {
     common::check_decompress_seek(STORE_ZIP_FILE).await
 }
 
-#[cfg(feature = "zstd")]
+#[cfg(feature = "zstd-read")]
 #[tokio::test]
 async fn decompress_zstd_zip_mem() {
     let content = tokio::fs::read(ZSTD_ZIP_FILE).await.unwrap();
@@ -55,7 +55,7 @@ async fn decompress_store_zip_mem() {
     common::check_decompress_mem(content).await
 }
 
-#[cfg(feature = "zstd")]
+#[cfg(feature = "zstd-read")]
 #[cfg(feature = "tokio-fs")]
 #[tokio::test]
 async fn decompress_zstd_zip_fs() {

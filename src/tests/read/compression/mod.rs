@@ -15,7 +15,7 @@ compressed_test_helper!(bz_test, Compression::Bz, "foo bar", include_bytes!("bzi
 #[cfg(feature = "lzma")]
 compressed_test_helper!(lzma_test, Compression::Lzma, "foo bar", include_bytes!("lzma.data"));
 
-#[cfg(feature = "zstd")]
+#[cfg(feature = "zstd-read")]
 compressed_test_helper!(zstd_test, Compression::Zstd, "foo bar", include_bytes!("zstd.data"));
 
 #[cfg(feature = "xz")]

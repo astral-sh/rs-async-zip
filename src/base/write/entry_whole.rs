@@ -41,6 +41,8 @@ impl<'b, 'c, W: AsyncWrite + Unpin> EntryWholeWriter<'b, 'c, W> {
         let mut _compressed_data: Option<Vec<u8>> = None;
         let compressed_data = match self.entry.compression() {
             Compression::Stored => self.data,
+            #[cfg(all(feature = "zstd-read", not(feature = "zstd")))]
+            Compression::Zstd => return Err(ZipError::FeatureNotSupported("Zstd writing")),
             #[cfg(feature = "deflate64")]
             Compression::Deflate64 => return Err(ZipError::FeatureNotSupported("Deflate64 writing")),
             #[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]

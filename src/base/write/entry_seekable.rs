@@ -64,6 +64,11 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
             return Err(ZipError::FeatureNotSupported("Deflate64 writing"));
         }
 
+        #[cfg(all(feature = "zstd-read", not(feature = "zstd")))]
+        if let crate::Compression::Zstd = entry.compression() {
+            return Err(ZipError::FeatureNotSupported("Zstd writing"));
+        }
+
         let lfh_offset = writer.writer.offset();
         let (lfh, local_header_has_zip64_sizes) = EntrySeekableWriter::write_lfh(writer, &mut entry).await?;
         let data_offset = writer.writer.offset();

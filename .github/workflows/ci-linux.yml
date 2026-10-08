@@ -38,6 +38,9 @@ jobs:
       - name: Test ['lzma' feature]
         run: cargo test --verbose --features lzma
 
+      - name: Test ['zstd-read' feature]
+        run: cargo test --verbose --features zstd-read
+
       - name: Test ['zstd' feature]
         run: cargo test --verbose --features zstd
 

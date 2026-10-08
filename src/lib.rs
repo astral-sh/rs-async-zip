@@ -30,7 +30,8 @@
 //! - `deflate` - Enables support for the Deflate compression method.
 //! - `bzip2` - Enables support for the bzip2 compression method.
 //! - `lzma` - Enables support for the LZMA compression method.
-//! - `zstd` - Enables support for the zstd compression method.
+//! - `zstd` - Enables reading and writing with the zstd compression method.
+//! - `zstd-read` - Enables reading with zstd without including its encoder.
 //! - `xz` - Enables support for the xz compression method.
 //!
 //! [Read more.](https://github.com/Majored/rs-async-zip)

@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 #[cfg(any(
     feature = "deflate",
     feature = "bzip2",
-    feature = "zstd",
+    feature = "zstd-read",
     feature = "lzma",
     feature = "xz",
     feature = "deflate64"
@@ -30,7 +30,7 @@ pub(crate) enum CompressedReader<R> {
     Bz(#[pin] bufread::BzDecoder<R>),
     #[cfg(feature = "lzma")]
     Lzma(#[pin] bufread::LzmaDecoder<R>),
-    #[cfg(feature = "zstd")]
+    #[cfg(feature = "zstd-read")]
     Zstd(#[pin] bufread::ZstdDecoder<R>),
     #[cfg(feature = "xz")]
     Xz(#[pin] bufread::XzDecoder<R>),
@@ -52,7 +52,7 @@ where
             Compression::Bz => CompressedReader::Bz(bufread::BzDecoder::new(reader)),
             #[cfg(feature = "lzma")]
             Compression::Lzma => CompressedReader::Lzma(bufread::LzmaDecoder::new(reader)),
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             Compression::Zstd => CompressedReader::Zstd(bufread::ZstdDecoder::new(reader)),
             #[cfg(feature = "xz")]
             Compression::Xz => CompressedReader::Xz(bufread::XzDecoder::new(reader)),
@@ -71,7 +71,7 @@ where
             CompressedReader::Bz(inner) => inner.get_ref(),
             #[cfg(feature = "lzma")]
             CompressedReader::Lzma(inner) => inner.get_ref(),
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             CompressedReader::Zstd(inner) => inner.get_ref(),
             #[cfg(feature = "xz")]
             CompressedReader::Xz(inner) => inner.get_ref(),
@@ -90,7 +90,7 @@ where
             CompressedReader::Bz(inner) => inner.into_inner(),
             #[cfg(feature = "lzma")]
             CompressedReader::Lzma(inner) => inner.into_inner(),
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             CompressedReader::Zstd(inner) => inner.into_inner(),
             #[cfg(feature = "xz")]
             CompressedReader::Xz(inner) => inner.into_inner(),
@@ -113,7 +113,7 @@ where
             CompressedReaderProj::Bz(inner) => inner.poll_read(c, b),
             #[cfg(feature = "lzma")]
             CompressedReaderProj::Lzma(inner) => inner.poll_read(c, b),
-            #[cfg(feature = "zstd")]
+            #[cfg(feature = "zstd-read")]
             CompressedReaderProj::Zstd(inner) => inner.poll_read(c, b),
             #[cfg(feature = "xz")]
             CompressedReaderProj::Xz(inner) => inner.poll_read(c, b),

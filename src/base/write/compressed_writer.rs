@@ -3,7 +3,7 @@
 
 use crate::base::write::io::offset::AsyncOffsetWriter;
 use crate::error::Result;
-#[cfg(feature = "deflate64")]
+#[cfg(any(feature = "deflate64", all(feature = "zstd-read", not(feature = "zstd"))))]
 use crate::error::ZipError;
 use crate::spec::Compression;
 
@@ -43,6 +43,8 @@ impl<'b, W: AsyncWrite + Unpin> CompressedAsyncWriter<'b, W> {
             Compression::Bz => CompressedAsyncWriter::Bz(write::BzEncoder::new(ShutdownIgnoredWriter(writer))),
             #[cfg(feature = "lzma")]
             Compression::Lzma => CompressedAsyncWriter::Lzma(write::LzmaEncoder::new(ShutdownIgnoredWriter(writer))),
+            #[cfg(all(feature = "zstd-read", not(feature = "zstd")))]
+            Compression::Zstd => return Err(ZipError::FeatureNotSupported("Zstd writing")),
             #[cfg(feature = "zstd")]
             Compression::Zstd => CompressedAsyncWriter::Zstd(write::ZstdEncoder::new(ShutdownIgnoredWriter(writer))),
             #[cfg(feature = "xz")]
