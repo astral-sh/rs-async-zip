@@ -2,8 +2,7 @@
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
 use crate::base::write::io::offset::AsyncOffsetWriter;
-use crate::error::Result;
-use crate::spec::Compression;
+use crate::spec::compression::WriteCompression;
 
 use std::io::Error;
 use std::pin::Pin;
@@ -34,26 +33,26 @@ pub enum CompressedAsyncWriter<'b, W: AsyncWrite + Unpin> {
 }
 
 impl<'b, W: AsyncWrite + Unpin> CompressedAsyncWriter<'b, W> {
-    pub fn from_raw(writer: &'b mut AsyncOffsetWriter<W>, compression: Compression) -> Result<Self> {
-        compression.ensure_can_write()?;
-
-        Ok(match compression {
-            Compression::Stored => CompressedAsyncWriter::Stored(ShutdownIgnoredWriter(writer)),
+    pub fn from_raw(writer: &'b mut AsyncOffsetWriter<W>, compression: WriteCompression) -> Self {
+        match compression {
+            WriteCompression::Stored => CompressedAsyncWriter::Stored(ShutdownIgnoredWriter(writer)),
             #[cfg(feature = "deflate-write")]
-            Compression::Deflate => {
+            WriteCompression::Deflate => {
                 CompressedAsyncWriter::Deflate(write::DeflateEncoder::new(ShutdownIgnoredWriter(writer)))
             }
             #[cfg(feature = "bzip2-write")]
-            Compression::Bz => CompressedAsyncWriter::Bz(write::BzEncoder::new(ShutdownIgnoredWriter(writer))),
+            WriteCompression::Bz => CompressedAsyncWriter::Bz(write::BzEncoder::new(ShutdownIgnoredWriter(writer))),
             #[cfg(feature = "lzma-write")]
-            Compression::Lzma => CompressedAsyncWriter::Lzma(write::LzmaEncoder::new(ShutdownIgnoredWriter(writer))),
+            WriteCompression::Lzma => {
+                CompressedAsyncWriter::Lzma(write::LzmaEncoder::new(ShutdownIgnoredWriter(writer)))
+            }
             #[cfg(feature = "zstd-write")]
-            Compression::Zstd => CompressedAsyncWriter::Zstd(write::ZstdEncoder::new(ShutdownIgnoredWriter(writer))),
+            WriteCompression::Zstd => {
+                CompressedAsyncWriter::Zstd(write::ZstdEncoder::new(ShutdownIgnoredWriter(writer)))
+            }
             #[cfg(feature = "xz-write")]
-            Compression::Xz => CompressedAsyncWriter::Xz(write::XzEncoder::new(ShutdownIgnoredWriter(writer))),
-            #[allow(unreachable_patterns)]
-            _ => unreachable!("write support was checked above"),
-        })
+            WriteCompression::Xz => CompressedAsyncWriter::Xz(write::XzEncoder::new(ShutdownIgnoredWriter(writer))),
+        }
     }
 
     pub fn into_inner(self) -> &'b mut AsyncOffsetWriter<W> {

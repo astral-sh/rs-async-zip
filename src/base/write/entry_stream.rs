@@ -9,6 +9,7 @@ use crate::base::write::CentralDirectoryEntry;
 use crate::base::write::ZipFileWriter;
 use crate::entry::ZipEntry;
 use crate::error::{Result, Zip64ErrorCase, ZipError};
+use crate::spec::compression::WriteCompression;
 use crate::spec::data_descriptor::{DataDescriptor, Zip64DataDescriptor};
 use crate::spec::extra_field::ExtraFieldAsBytes;
 use crate::spec::header::InfoZipUnicodeCommentExtraField;
@@ -55,7 +56,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
             return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
         }
 
-        entry.compression().ensure_can_write()?;
+        let compression = WriteCompression::try_from(entry.compression())?;
 
         let lfh_offset = writer.writer.offset();
         let lfh = EntryStreamWriter::write_lfh(writer, &mut entry).await?;
@@ -64,7 +65,7 @@ impl<'b, W: AsyncWrite + Unpin> EntryStreamWriter<'b, W> {
 
         let cd_entries = &mut writer.cd_entries;
         let is_zip64 = &mut writer.is_zip64;
-        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, entry.compression())?);
+        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, compression));
 
         Ok(EntryStreamWriter {
             writer,

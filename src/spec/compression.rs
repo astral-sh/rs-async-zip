@@ -31,23 +31,50 @@ pub enum Compression {
     Xz,
 }
 
-impl Compression {
-    /// Reject unsupported writers before emitting any entry data.
-    pub(crate) fn ensure_can_write(self) -> Result<()> {
-        match self {
+/// A compression method enabled for writing.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum WriteCompression {
+    Stored,
+    #[cfg(feature = "deflate-write")]
+    Deflate,
+    #[cfg(feature = "bzip2-write")]
+    Bz,
+    #[cfg(feature = "lzma-write")]
+    Lzma,
+    #[cfg(feature = "zstd-write")]
+    Zstd,
+    #[cfg(feature = "xz-write")]
+    Xz,
+}
+
+impl TryFrom<Compression> for WriteCompression {
+    type Error = ZipError;
+
+    fn try_from(compression: Compression) -> Result<Self> {
+        match compression {
+            Compression::Stored => Ok(Self::Stored),
+            #[cfg(feature = "deflate-write")]
+            Compression::Deflate => Ok(Self::Deflate),
+            #[cfg(feature = "bzip2-write")]
+            Compression::Bz => Ok(Self::Bz),
+            #[cfg(feature = "lzma-write")]
+            Compression::Lzma => Ok(Self::Lzma),
+            #[cfg(feature = "zstd-write")]
+            Compression::Zstd => Ok(Self::Zstd),
+            #[cfg(feature = "xz-write")]
+            Compression::Xz => Ok(Self::Xz),
             #[cfg(all(feature = "deflate-read", not(feature = "deflate-write")))]
-            Self::Deflate => Err(ZipError::FeatureNotSupported("Deflate writing")),
+            Compression::Deflate => Err(ZipError::FeatureNotSupported("Deflate writing")),
             #[cfg(all(feature = "bzip2-read", not(feature = "bzip2-write")))]
-            Self::Bz => Err(ZipError::FeatureNotSupported("Bz writing")),
+            Compression::Bz => Err(ZipError::FeatureNotSupported("Bz writing")),
             #[cfg(all(feature = "lzma-read", not(feature = "lzma-write")))]
-            Self::Lzma => Err(ZipError::FeatureNotSupported("Lzma writing")),
+            Compression::Lzma => Err(ZipError::FeatureNotSupported("Lzma writing")),
             #[cfg(all(feature = "zstd-read", not(feature = "zstd-write")))]
-            Self::Zstd => Err(ZipError::FeatureNotSupported("Zstd writing")),
+            Compression::Zstd => Err(ZipError::FeatureNotSupported("Zstd writing")),
             #[cfg(all(feature = "xz-read", not(feature = "xz-write")))]
-            Self::Xz => Err(ZipError::FeatureNotSupported("Xz writing")),
+            Compression::Xz => Err(ZipError::FeatureNotSupported("Xz writing")),
             #[cfg(feature = "deflate64-read")]
-            Self::Deflate64 => Err(ZipError::FeatureNotSupported("Deflate64 writing")),
-            _ => Ok(()),
+            Compression::Deflate64 => Err(ZipError::FeatureNotSupported("Deflate64 writing")),
         }
     }
 }
