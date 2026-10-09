@@ -6,7 +6,7 @@
 //! # Example
 //! ### Whole data (u8 slice)
 //! ```no_run
-//! # #[cfg(feature = "deflate")]
+//! # #[cfg(feature = "deflate-write")]
 //! # {
 //! # use async_zip::{Compression, ZipEntryBuilder, base::write::ZipFileWriter};
 //! # use async_zip::error::ZipError;
@@ -25,7 +25,7 @@
 //! ```
 //! ### Stream data (unknown size & data)
 //! ```no_run
-//! # #[cfg(feature = "deflate")]
+//! # #[cfg(feature = "deflate-write")]
 //! # {
 //! # use async_zip::{Compression, ZipEntryBuilder, base::write::ZipFileWriter};
 //! # use std::io::Cursor;

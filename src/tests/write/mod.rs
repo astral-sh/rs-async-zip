@@ -438,7 +438,7 @@ async fn seekable_stream_raises_version_needed_at_zip64_local_header_offset_sent
     writer.close().await.unwrap();
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(all(feature = "deflate-read", feature = "deflate-write"))]
 #[tokio::test]
 async fn seekable_stream_deflate_writes_compact_headers() {
     let contents = b"repeated data ".repeat(128);
@@ -475,7 +475,7 @@ async fn reject_large_archive_comment() {
     assert!(buffer.is_empty());
 }
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn reject_deflate64_whole_writes() {
     let mut buffer = Vec::new();
@@ -488,7 +488,7 @@ async fn reject_deflate64_whole_writes() {
     assert!(buffer.is_empty());
 }
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn reject_deflate64_stream_writes() {
     let mut buffer = Vec::new();
@@ -501,7 +501,7 @@ async fn reject_deflate64_stream_writes() {
     assert!(buffer.is_empty());
 }
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn reject_deflate64_seekable_stream_writes() {
     let mut writer = ZipFileWriter::new(Cursor::new(Vec::new()));

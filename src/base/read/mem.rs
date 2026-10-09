@@ -122,11 +122,7 @@ impl ZipFileReader {
 
         stored_entry.seek_to_data_offset(&mut cursor).await?;
 
-        Ok(ZipEntryReader::new_with_owned(
-            cursor,
-            stored_entry.entry.compression(),
-            stored_entry.entry.compressed_size(),
-        ))
+        ZipEntryReader::new_with_owned(cursor, stored_entry.entry.compression(), stored_entry.entry.compressed_size())
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -140,7 +136,7 @@ impl ZipFileReader {
             cursor,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        );
+        )?;
 
         Ok(reader.into_with_entry(stored_entry))
     }

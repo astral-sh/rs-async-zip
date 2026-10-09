@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Astral
 // MIT License (https://github.com/astral-sh/rs-async-zip/blob/main/LICENSE)
 
-#[cfg(feature = "deflate64")]
+#[cfg(feature = "deflate64-read")]
 #[tokio::test]
 async fn invalid_deflate64_stream_version_fails_before_body_read() {
     use crate::base::read::stream::ZipFileReader;

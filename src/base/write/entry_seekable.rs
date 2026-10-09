@@ -8,6 +8,7 @@ use crate::base::write::io::offset::AsyncOffsetWriter;
 use crate::base::write::{CentralDirectoryEntry, ZipFileWriter};
 use crate::entry::ZipEntry;
 use crate::error::{Result, Zip64ErrorCase, ZipError};
+use crate::spec::compression::WriteCompression;
 use crate::spec::consts::{NON_ZIP64_MAX_NUM_FILES, NON_ZIP64_MAX_SIZE};
 use crate::spec::extra_field::ExtraFieldAsBytes;
 use crate::spec::header::{
@@ -59,10 +60,7 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
             return Err(ZipError::Zip64Needed(Zip64ErrorCase::TooManyFiles));
         }
 
-        #[cfg(feature = "deflate64")]
-        if matches!(entry.compression(), crate::Compression::Deflate64) {
-            return Err(ZipError::FeatureNotSupported("Deflate64 writing"));
-        }
+        let compression = WriteCompression::try_from(entry.compression())?;
 
         let lfh_offset = writer.writer.offset();
         let (lfh, local_header_has_zip64_sizes) = EntrySeekableWriter::write_lfh(writer, &mut entry).await?;
@@ -71,7 +69,7 @@ impl<'b, W: AsyncWrite + AsyncSeek + Unpin> EntrySeekableWriter<'b, W> {
 
         let cd_entries = &mut writer.cd_entries;
         let is_zip64 = &mut writer.is_zip64;
-        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, entry.compression())?);
+        let writer = AsyncOffsetWriter::new(CompressedAsyncWriter::from_raw(&mut writer.writer, compression));
 
         Ok(EntrySeekableWriter {
             writer,

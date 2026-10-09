@@ -502,7 +502,7 @@ mod tests {
         assert!(CentralDirectoryRecord::from_reader(&mut cursor).await.is_ok());
     }
 
-    #[cfg(feature = "deflate")]
+    #[cfg(feature = "deflate-read")]
     #[tokio::test]
     async fn deflate_headers_accept_legacy_extract_version() {
         let mut local = [0; 26];

@@ -57,7 +57,7 @@ async fn malo_iffy_suffix_not_comment() {
     .map(|_| ())]);
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn malo_reject_dupe_eocd() {
     use crate::error::ZipError;
@@ -140,7 +140,7 @@ async fn entry_comments_are_validated() {
     }
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn malo_accept_deflate() {
     for result in archive_results(include_bytes!("../malo/accept/deflate.zip")).await {
@@ -148,7 +148,7 @@ async fn malo_accept_deflate() {
     }
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn malo_accept_zip64_eocd() {
     for result in archive_results(include_bytes!("../malo/accept/zip64_eocd.zip")).await {
@@ -161,7 +161,7 @@ async fn trailing_nul_padding_limit_is_enforced() {
     // Reuse the same boundary cases across classic ZIP, ZIP64, and all three reader modes.
     for archive in [
         include_bytes!("../malo/accept/store.zip").as_slice(),
-        #[cfg(feature = "deflate")]
+        #[cfg(feature = "deflate-read")]
         include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
     ] {
         for padding in [0, 4096, 4097] {
@@ -192,7 +192,7 @@ async fn nonzero_suffix_after_nul_padding_is_rejected() {
     // Reuse valid classic ZIP and ZIP64 fixtures, changing only the suffix.
     for archive in [
         include_bytes!("../malo/accept/store.zip").as_slice(),
-        #[cfg(feature = "deflate")]
+        #[cfg(feature = "deflate-read")]
         include_bytes!("../malo/accept/zip64_eocd.zip").as_slice(),
     ] {
         let mut data = archive.to_vec();
@@ -241,7 +241,7 @@ fn central_directory_offset(data: &[u8]) -> usize {
     data.windows(signature.len()).position(|window| window == signature).unwrap()
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn test_nonempty_cd_comment() {
     use futures_lite::io::Cursor;
@@ -407,7 +407,7 @@ async fn test_archive_rejects_unsupported_central_directory_extract_versions() {
     assert!(matches!(err, ZipError::FeatureNotSupported("zip file version > 6.3")));
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn test_archive_accepts_nonzero_reserved_extract_version_bytes() {
     use crate::base::read::mem::ZipFileReader;
@@ -419,7 +419,7 @@ async fn test_archive_accepts_nonzero_reserved_extract_version_bytes() {
     reader.reader_without_entry(0).await.unwrap();
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn test_stream_rejects_unsupported_local_extract_versions() {
     use crate::base::read::stream::ZipFileReader;
@@ -433,7 +433,7 @@ async fn test_stream_rejects_unsupported_local_extract_versions() {
     assert!(matches!(err, ZipError::FeatureNotSupported("zip file version > 6.3")));
 }
 
-#[cfg(feature = "deflate")]
+#[cfg(feature = "deflate-read")]
 #[tokio::test]
 async fn test_stream_accepts_maximum_supported_local_extract_version() {
     use crate::base::read::stream::ZipFileReader;

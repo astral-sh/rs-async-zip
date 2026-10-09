@@ -3,7 +3,13 @@
 
 use crate::error::{Result, ZipError};
 
-#[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
+#[cfg(any(
+    feature = "deflate-write",
+    feature = "bzip2-write",
+    feature = "zstd-write",
+    feature = "lzma-write",
+    feature = "xz-write"
+))]
 use async_compression::Level;
 
 /// A compression method supported by this crate.
@@ -11,18 +17,66 @@ use async_compression::Level;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
     Stored,
-    #[cfg(feature = "deflate")]
+    #[cfg(any(feature = "deflate-read", feature = "deflate-write"))]
     Deflate,
-    #[cfg(feature = "deflate64")]
+    #[cfg(feature = "deflate64-read")]
     Deflate64,
-    #[cfg(feature = "bzip2")]
+    #[cfg(any(feature = "bzip2-read", feature = "bzip2-write"))]
     Bz,
-    #[cfg(feature = "lzma")]
+    #[cfg(any(feature = "lzma-read", feature = "lzma-write"))]
     Lzma,
-    #[cfg(feature = "zstd")]
+    #[cfg(any(feature = "zstd-read", feature = "zstd-write"))]
     Zstd,
-    #[cfg(feature = "xz")]
+    #[cfg(any(feature = "xz-read", feature = "xz-write"))]
     Xz,
+}
+
+/// A compression method enabled for writing.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum WriteCompression {
+    Stored,
+    #[cfg(feature = "deflate-write")]
+    Deflate,
+    #[cfg(feature = "bzip2-write")]
+    Bz,
+    #[cfg(feature = "lzma-write")]
+    Lzma,
+    #[cfg(feature = "zstd-write")]
+    Zstd,
+    #[cfg(feature = "xz-write")]
+    Xz,
+}
+
+impl TryFrom<Compression> for WriteCompression {
+    type Error = ZipError;
+
+    fn try_from(compression: Compression) -> Result<Self> {
+        match compression {
+            Compression::Stored => Ok(Self::Stored),
+            #[cfg(feature = "deflate-write")]
+            Compression::Deflate => Ok(Self::Deflate),
+            #[cfg(feature = "bzip2-write")]
+            Compression::Bz => Ok(Self::Bz),
+            #[cfg(feature = "lzma-write")]
+            Compression::Lzma => Ok(Self::Lzma),
+            #[cfg(feature = "zstd-write")]
+            Compression::Zstd => Ok(Self::Zstd),
+            #[cfg(feature = "xz-write")]
+            Compression::Xz => Ok(Self::Xz),
+            #[cfg(all(feature = "deflate-read", not(feature = "deflate-write")))]
+            Compression::Deflate => Err(ZipError::FeatureNotSupported("Deflate writing")),
+            #[cfg(all(feature = "bzip2-read", not(feature = "bzip2-write")))]
+            Compression::Bz => Err(ZipError::FeatureNotSupported("Bz writing")),
+            #[cfg(all(feature = "lzma-read", not(feature = "lzma-write")))]
+            Compression::Lzma => Err(ZipError::FeatureNotSupported("Lzma writing")),
+            #[cfg(all(feature = "zstd-read", not(feature = "zstd-write")))]
+            Compression::Zstd => Err(ZipError::FeatureNotSupported("Zstd writing")),
+            #[cfg(all(feature = "xz-read", not(feature = "xz-write")))]
+            Compression::Xz => Err(ZipError::FeatureNotSupported("Xz writing")),
+            #[cfg(feature = "deflate64-read")]
+            Compression::Deflate64 => Err(ZipError::FeatureNotSupported("Deflate64 writing")),
+        }
+    }
 }
 
 impl TryFrom<u16> for Compression {
@@ -33,17 +87,17 @@ impl TryFrom<u16> for Compression {
     fn try_from(value: u16) -> Result<Self> {
         match value {
             0 => Ok(Compression::Stored),
-            #[cfg(feature = "deflate")]
+            #[cfg(any(feature = "deflate-read", feature = "deflate-write"))]
             8 => Ok(Compression::Deflate),
-            #[cfg(feature = "deflate64")]
+            #[cfg(feature = "deflate64-read")]
             9 => Ok(Compression::Deflate64),
-            #[cfg(feature = "bzip2")]
+            #[cfg(any(feature = "bzip2-read", feature = "bzip2-write"))]
             12 => Ok(Compression::Bz),
-            #[cfg(feature = "lzma")]
+            #[cfg(any(feature = "lzma-read", feature = "lzma-write"))]
             14 => Ok(Compression::Lzma),
-            #[cfg(feature = "zstd")]
+            #[cfg(any(feature = "zstd-read", feature = "zstd-write"))]
             93 => Ok(Compression::Zstd),
-            #[cfg(feature = "xz")]
+            #[cfg(any(feature = "xz-read", feature = "xz-write"))]
             95 => Ok(Compression::Xz),
             _ => Err(ZipError::CompressionNotSupported(value)),
         }
@@ -56,17 +110,17 @@ impl From<&Compression> for u16 {
     fn from(compression: &Compression) -> u16 {
         match compression {
             Compression::Stored => 0,
-            #[cfg(feature = "deflate")]
+            #[cfg(any(feature = "deflate-read", feature = "deflate-write"))]
             Compression::Deflate => 8,
-            #[cfg(feature = "deflate64")]
+            #[cfg(feature = "deflate64-read")]
             Compression::Deflate64 => 9,
-            #[cfg(feature = "bzip2")]
+            #[cfg(any(feature = "bzip2-read", feature = "bzip2-write"))]
             Compression::Bz => 12,
-            #[cfg(feature = "lzma")]
+            #[cfg(any(feature = "lzma-read", feature = "lzma-write"))]
             Compression::Lzma => 14,
-            #[cfg(feature = "zstd")]
+            #[cfg(any(feature = "zstd-read", feature = "zstd-write"))]
             Compression::Zstd => 93,
-            #[cfg(feature = "xz")]
+            #[cfg(any(feature = "xz-read", feature = "xz-write"))]
             Compression::Xz => 95,
         }
     }
@@ -97,7 +151,13 @@ pub enum DeflateOption {
     Other(i32),
 }
 
-#[cfg(any(feature = "deflate", feature = "bzip2", feature = "zstd", feature = "lzma", feature = "xz"))]
+#[cfg(any(
+    feature = "deflate-write",
+    feature = "bzip2-write",
+    feature = "zstd-write",
+    feature = "lzma-write",
+    feature = "xz-write"
+))]
 impl DeflateOption {
     pub(crate) fn into_level(self) -> Level {
         // FIXME: There's no clear documentation on what these specific levels defined in the ZIP specification relate

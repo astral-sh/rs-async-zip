@@ -32,19 +32,21 @@ where
     R: AsyncBufRead + Unpin,
 {
     /// Constructs a new entry reader from its required parameters (incl. an owned R).
-    pub(crate) fn new_with_owned(reader: R, compression: Compression, size: u64) -> Self {
-        let reader =
-            HashedReader::new(CompressedReader::new(Counting::new(OwnedReader::Owned(reader).take(size)), compression));
-        Self { reader, entry: WithoutEntry }
+    pub(crate) fn new_with_owned(reader: R, compression: Compression, size: u64) -> Result<Self> {
+        let reader = HashedReader::new(CompressedReader::new(
+            Counting::new(OwnedReader::Owned(reader).take(size)),
+            compression,
+        )?);
+        Ok(Self { reader, entry: WithoutEntry })
     }
 
     /// Constructs a new entry reader from its required parameters (incl. a mutable borrow of an R).
-    pub(crate) fn new_with_borrow(reader: &'a mut R, compression: Compression, size: u64) -> Self {
+    pub(crate) fn new_with_borrow(reader: &'a mut R, compression: Compression, size: u64) -> Result<Self> {
         let reader = HashedReader::new(CompressedReader::new(
             Counting::new(OwnedReader::Borrow(reader).take(size)),
             compression,
-        ));
-        Self { reader, entry: WithoutEntry }
+        )?);
+        Ok(Self { reader, entry: WithoutEntry })
     }
 
     pub(crate) fn into_with_entry(self, entry: &'a ZipEntry) -> ZipEntryReader<'a, R, WithEntry<'a>> {

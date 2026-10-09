@@ -92,11 +92,11 @@ where
         let stored_entry = self.file.entries.get(index).ok_or(ZipError::EntryIndexOutOfBounds)?;
         stored_entry.seek_to_data_offset(&mut self.reader).await?;
 
-        Ok(ZipEntryReader::new_with_borrow(
+        ZipEntryReader::new_with_borrow(
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
     }
 
     /// Returns a new entry reader if the provided index is valid.
@@ -109,7 +109,7 @@ where
             &mut self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        );
+        )?;
 
         Ok(reader.into_with_entry(stored_entry))
     }
@@ -124,11 +124,11 @@ where
 
         stored_entry.seek_to_data_offset(&mut self.reader).await?;
 
-        Ok(ZipEntryReader::new_with_owned(
+        ZipEntryReader::new_with_owned(
             self.reader,
             stored_entry.entry.compression(),
             stored_entry.entry.compressed_size(),
-        ))
+        )
     }
 }
 

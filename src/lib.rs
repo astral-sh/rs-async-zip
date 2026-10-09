@@ -27,11 +27,14 @@
 //! - `full-wasm` - Enables all below features that are compatible with WASM.
 //! - `tokio` - Enables support for the `tokio` implementation module.
 //! - `tokio-fs` - Enables support for the `tokio::fs` reading module.
-//! - `deflate` - Enables support for the Deflate compression method.
-//! - `bzip2` - Enables support for the bzip2 compression method.
-//! - `lzma` - Enables support for the LZMA compression method.
-//! - `zstd` - Enables support for the zstd compression method.
-//! - `xz` - Enables support for the xz compression method.
+//!
+//! Compression features for `deflate`, `bzip2`, `lzma`, `zstd`, and `xz` follow the same pattern:
+//! - `foo` enables both reading and writing (equivalent to `foo-read` and `foo-write`).
+//! - `foo-read` enables reading without including the encoder in this crate's writers.
+//! - `foo-write` enables writing without including the decoder in this crate's readers.
+//!
+//! `deflate64` is an alias for `deflate64-read`. Deflate64 writing is not supported.
+//! Stored entries can always be read and written.
 //!
 //! [Read more.](https://github.com/Majored/rs-async-zip)
 
