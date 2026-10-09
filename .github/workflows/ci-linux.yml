@@ -13,34 +13,41 @@ permissions: {}
 
 jobs:
   build:
+    name: Test (${{ matrix.features || 'no features' }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""
+          - tokio
+          - tokio-fs
+          - deflate
+          - deflate-read
+          - deflate-write
+          - bzip2
+          - bzip2-read
+          - bzip2-write
+          - lzma
+          - lzma-read
+          - lzma-write
+          - zstd
+          - zstd-read
+          - zstd-write
+          - xz
+          - xz-read
+          - xz-write
+          - deflate64
+          - deflate64-read
+          - deflate-read,bzip2-write,lzma-read,zstd-write,xz-read,deflate64-read,tokio-fs
+          - full
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
 
-      - name: Test [no features]
-        run: cargo test --verbose
-
-      - name: Test ['tokio' feature]
-        run: cargo test --verbose --features tokio
-
-      - name: Test ['tokio-fs' feature]
-        run: cargo test --verbose --features tokio-fs
-
-      - name: Test compression features
-        run: |
-          for format in deflate bzip2 lzma zstd xz; do
-            for suffix in '' '-read' '-write'; do
-              cargo test --verbose --no-default-features --features "${format}${suffix}"
-            done
-          done
-          cargo test --verbose --no-default-features --features deflate64
-          cargo test --verbose --no-default-features --features deflate64-read
-
-      - name: Test mixed compression features
-        run: cargo test --verbose --no-default-features --features deflate-read,bzip2-write,lzma-read,zstd-write,xz-read,deflate64-read,tokio-fs
-
-      - name: Test ['full' feature]
-        run: cargo test --verbose --features full
+      - name: Test
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: cargo test --verbose --no-default-features --features "$FEATURES"
