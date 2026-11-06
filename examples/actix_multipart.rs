@@ -2,7 +2,7 @@
 // Copyright (c) 2021 Harry [Majored] [hello@majored.pw]
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE
 
-#[cfg(features = "deflate")]
+#[cfg(feature = "deflate")]
 mod inner {
     use async_zip::write::ZipFileWriter;
     use async_zip::{Compression, ZipEntryBuilder};
@@ -78,7 +78,7 @@ mod inner {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    #[cfg(features = "deflate")]
+    #[cfg(feature = "deflate")]
     {
         inner::do_main().await?;
     }

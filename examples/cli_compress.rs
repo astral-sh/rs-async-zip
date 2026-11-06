@@ -3,7 +3,7 @@
 
 #[tokio::main]
 async fn main() {
-    #[cfg(features = "deflate")]
+    #[cfg(feature = "deflate")]
     if let Err(err) = inner::run().await {
         eprintln!("Error: {}", err);
         eprintln!("Usage: cli_compress <input file or directory> <output ZIP file name>");
@@ -11,7 +11,7 @@ async fn main() {
     }
 }
 
-#[cfg(features = "deflate")]
+#[cfg(feature = "deflate")]
 mod inner {
 
     use async_zip::base::write::ZipFileWriter;
