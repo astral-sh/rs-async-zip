@@ -220,7 +220,7 @@ fn generate_zip64many_zip() -> std::path::PathBuf {
 
     let zip_file = std::fs::File::create(&path).unwrap();
     let mut zip = zip::ZipWriter::new(zip_file);
-    let options: FileOptions<'_, ExtendedFileOptions> =
+    let options: FileOptions<'_, '_, ExtendedFileOptions> =
         FileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     for i in 0..2_u32.pow(16) + 1 {
