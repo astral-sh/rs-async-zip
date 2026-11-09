@@ -27,36 +27,30 @@ fn minimum_version_needed_for_method(compression: u16) -> u16 {
     }
 }
 
-/// Validates the minimum extraction version for Deflate64 entries.
-///
-/// Deflate64 decoding can stop making progress when an entry declares a
-/// contradictory legacy version.
-///
-/// Does not perform validation for other compression methods. A previous
-/// attempt to do so for Deflate was blocked by prevalent use of legacy
-/// versions, e.g., in GitHub source archive zips.
-fn validate_deflate64_version(version: u16, compression: u16) -> Result<()> {
-    if compression != 9 {
-        return Ok(());
-    }
-
-    let required = minimum_version_needed_for_method(compression);
-    if version < required {
-        return Err(ZipError::InvalidCompressionVersion { version, required, compression });
-    }
-
-    Ok(())
-}
-
+#[inline]
 pub(crate) fn validate_extract_version(raw_version: u16, compression: u16) -> Result<()> {
     // The extraction version occupies the low byte. The high byte is reserved,
     // but some writers populate it as though this were a "version made by" field.
     let version = raw_version & 0xff;
+    if version <= MAX_SUPPORTED_EXTRACT_VERSION && (compression != 9 || version >= 21) {
+        return Ok(());
+    }
+
+    invalid_extract_version(version, compression)
+}
+
+/// Classifies an invalid extraction-version combination after the common path is rejected.
+#[cold]
+fn invalid_extract_version(version: u16, compression: u16) -> Result<()> {
     if version > MAX_SUPPORTED_EXTRACT_VERSION {
         return Err(ZipError::FeatureNotSupported("zip file version > 6.3"));
     }
 
-    validate_deflate64_version(version, compression)
+    // Deflate64 decoding can stop making progress when an entry declares a
+    // contradictory legacy version. Other compression methods intentionally
+    // accept legacy versions used by common ZIP producers.
+    let required = minimum_version_needed_for_method(compression);
+    Err(ZipError::InvalidCompressionVersion { version, required, compression })
 }
 
 // https://github.com/Majored/rs-async-zip/blob/main/SPECIFICATION.md#443
