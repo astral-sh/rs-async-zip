@@ -2,7 +2,7 @@
 // MIT License (https://github.com/Majored/rs-async-zip/blob/main/LICENSE)
 
 use crate::error::{Result, ZipError};
-use crate::spec::consts::ZIP64_EOCDR_MIN_SIZE;
+use crate::spec::consts::{LFH_LENGTH, LFH_SIGNATURE, ZIP64_EOCDR_MIN_SIZE};
 use crate::spec::header::{
     CentralDirectoryRecord, EndOfCentralDirectoryHeader, ExtraField, GeneralPurposeFlag, HeaderId, LocalFileHeader,
     Zip64EndOfCentralDirectoryLocator, Zip64EndOfCentralDirectoryRecord,
@@ -220,13 +220,35 @@ impl From<[u8; 16]> for DataDescriptor {
 }
 
 impl LocalFileHeader {
+    fn validate(self) -> Result<Self> {
+        validate_general_purpose_flags(self.flags)?;
+        validate_extract_version(self.version, self.compression)?;
+        Ok(self)
+    }
+
     pub async fn from_reader<R: AsyncRead + Unpin>(reader: &mut R) -> Result<LocalFileHeader> {
         let mut buffer: [u8; 26] = [0; 26];
         reader.read_exact(&mut buffer).await?;
-        let header = LocalFileHeader::from(buffer);
-        validate_general_purpose_flags(header.flags)?;
-        validate_extract_version(header.version, header.compression)?;
-        Ok(header)
+        LocalFileHeader::from(buffer).validate()
+    }
+
+    /// Reads and validates a local file header, including its signature.
+    pub(crate) async fn from_reader_with_signature<R: AsyncRead + Unpin>(reader: &mut R) -> Result<LocalFileHeader> {
+        let mut buffer = [0; SIGNATURE_LENGTH + LFH_LENGTH];
+        let mut read = reader.read(&mut buffer).await?;
+        if read < SIGNATURE_LENGTH {
+            reader.read_exact(&mut buffer[read..SIGNATURE_LENGTH]).await?;
+            read = SIGNATURE_LENGTH;
+        }
+
+        let signature = u32::from_le_bytes(buffer[..SIGNATURE_LENGTH].try_into().unwrap());
+        if signature != LFH_SIGNATURE {
+            return Err(ZipError::UnexpectedHeaderError(signature, LFH_SIGNATURE));
+        }
+
+        reader.read_exact(&mut buffer[read..]).await?;
+        let header: [u8; LFH_LENGTH] = buffer[SIGNATURE_LENGTH..].try_into().unwrap();
+        LocalFileHeader::from(header).validate()
     }
 }
 
@@ -479,6 +501,16 @@ mod tests {
         let mut cursor = futures_lite::io::Cursor::new(bytes);
 
         assert!(LocalFileHeader::from_reader(&mut cursor).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn local_file_header_with_signature_reports_invalid_signature_before_truncated_header() {
+        let mut cursor = futures_lite::io::Cursor::new([0; SIGNATURE_LENGTH]);
+
+        assert!(matches!(
+            LocalFileHeader::from_reader_with_signature(&mut cursor).await,
+            Err(ZipError::UnexpectedHeaderError(0, LFH_SIGNATURE))
+        ));
     }
 
     #[tokio::test]
