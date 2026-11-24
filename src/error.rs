@@ -72,6 +72,8 @@ pub enum ZipError {
     EntryIndexOutOfBounds,
     #[error("the local file header name did not match the central directory name")]
     LocalFileHeaderNameMismatch,
+    #[error("the local file header compression method did not match the central directory compression method")]
+    LocalFileHeaderCompressionMismatch,
     #[error("local file header data-descriptor flag did not match the central directory flag")]
     LocalFileHeaderDataDescriptorMismatch,
     #[error("local file header sizes did not match the central directory sizes")]

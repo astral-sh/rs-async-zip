@@ -676,6 +676,19 @@ fn zip64_sizes_extra_field(compressed_size: u64, uncompressed_size: u64) -> Vec<
 }
 
 #[tokio::test]
+async fn test_local_header_compression_method_must_match_central_directory() {
+    use crate::base::read::mem::ZipFileReader;
+    use crate::error::ZipError;
+
+    let mut data = empty_stored_zip(0, 0, 0, &[], 0, 0, 0);
+    // Set only the local file header's compression method to DEFLATE.
+    data[8..10].copy_from_slice(&8_u16.to_le_bytes());
+
+    let reader = ZipFileReader::new(data).await.unwrap();
+    assert!(matches!(reader.reader_without_entry(0).await, Err(ZipError::LocalFileHeaderCompressionMismatch)));
+}
+
+#[tokio::test]
 async fn test_local_header_sizes_must_match_central_directory() {
     use crate::base::read::mem::ZipFileReader;
     use crate::error::ZipError;

@@ -216,6 +216,10 @@ impl StoredZipEntry {
 
         // Read and validate the local file header's trailing data.
         let header = LocalFileHeader::from_reader(&mut reader).await?;
+        if header.compression != u16::from(self.entry.compression()) {
+            return Err(ZipError::LocalFileHeaderCompressionMismatch);
+        }
+
         let data_start = self
             .file_offset
             .checked_add((SIGNATURE_LENGTH + LFH_LENGTH) as u64)
