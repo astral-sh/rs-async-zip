@@ -60,6 +60,11 @@ impl CentralDirectoryEntry {
         Some((self.header.exter_attr) >> 16)
     }
 
+    /// Returns the ZIP compression method ID from the central directory.
+    pub fn compression_method(&self) -> u16 {
+        self.header.compression
+    }
+
     /// Returns the CRC32 checksum of the entry.
     pub fn crc32(&self) -> u32 {
         self.header.crc
