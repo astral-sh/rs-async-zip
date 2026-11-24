@@ -71,10 +71,6 @@ tokio-util = { version = "0.7", features = ["compat"] }
 env_logger = "0.11.2"
 zip = { version = "9", default-features = false }
 
-# shared across multiple examples
-anyhow = "1"
+# examples
 sanitize-filename = "0.6"
-
 futures = "0.3"
-derive_more = { version = "2.0", features = ["display", "error"] }
-uuid = { version = "1", features = ["v4", "serde"] }
